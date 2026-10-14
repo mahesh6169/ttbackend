@@ -1,0 +1,53 @@
+# Local development: Mongo + backend.
+#   docker compose up          (from this folder: mongo + backend)
+# To run the frontend too, start from ../ttfrontend instead.
+# Prod does NOT use this file: Fly builds ./Dockerfile via fly.toml.
+#
+# One-time setup on a new machine:  docker network create edge
+# Backend tests (test DB must end in _test):
+#   docker compose run --rm -e MONGO_URI='mongodb://tt-mongo:27017/tagtelugu_test?replicaSet=rs0' tt-backend npm test
+name: tagtelugu
+
+services:
+  tt-mongo:
+    image: mongo:7.0.14
+    # Single-node replica set "rs0": the app uses transactions (ticket
+    # purchase), which need a replica set. Prod (Atlas) is one too.
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    volumes:
+      - tt-mongo-data:/data/db
+    # Initiates the replica set on first start; healthy once it's primary.
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'tt-mongo:27017' }] }).ok }; db.hello().isWritablePrimary || quit(1)"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 10s
+    # No ports published and not on "edge": only the backend can reach it.
+
+  tt-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    init: true
+    volumes:
+      - .:/app
+      - tt-backend-node-modules:/app/node_modules
+    environment:
+      # .env is loaded by server.js (dotenv never overrides vars already set),
+      # so this points the app at the Mongo container without editing .env.
+      MONGO_URI: mongodb://tt-mongo:27017/tagtelugu?replicaSet=rs0
+    depends_on:
+      tt-mongo:
+        condition: service_healthy
+    networks:
+      - default
+      - edge
+
+volumes:
+  tt-mongo-data:
+  tt-backend-node-modules:
+
+networks:
+  edge:
+    external: true

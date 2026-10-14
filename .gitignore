@@ -1,0 +1,18 @@
+node_modules
+.env
+.env.*
+# Test artefacts (tests themselves ARE committed; secrets and reports are not)
+coverage/
+test-results/
+playwright-report/
+testscripts
+zdoco
+scripts
+logs/
+*.log
+# Local generated seed scripts (not for the repo)
+seedscripts
+# Local captures and screenshots (may hold real data)
+event-captures*.jsonl
+images/
+.DS_Store
