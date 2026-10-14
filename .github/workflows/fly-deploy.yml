@@ -1,4 +1,5 @@
 # See https://fly.io/docs/app-guides/continuous-deployment-with-github-actions/
+# Deploys from mahesh6169/ttbackend since 2026-10-14 (the old ttbackendflyio repo's copy is disabled).
 
 name: Fly Deploy
 on:
