@@ -25,7 +25,7 @@ jobs:
       # Chat encryption key: 32 bytes as hex (utils/chat/encryption.js). Locally
       # the tests pick it up from the dev .env; CI has no .env, so a dummy here.
       MESSAGE_SECRET_KEY: 00000000000000000000000000000000000000000000000000000000000000ff
-      FRONTEND_API_KEY: ci-only-frontend-api-key
+      FRONTEND_API_KEY: test-api-key
       API_KEY_MODE: enforce
       FRONTEND_URL: http://localhost:3120
       WEBSITE_URL: http://localhost:3120
