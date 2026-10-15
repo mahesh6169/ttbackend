@@ -1,7 +1,17 @@
 {
-  "watch": ["backend/**/*"],
+  "watch": [
+    "server.js",
+    "app.js",
+    "config",
+    "constants",
+    "controllers",
+    "middlewares",
+    "models",
+    "routes",
+    "services",
+    "socket",
+    "utils"
+  ],
   "ext": "js,json,mjs",
-  "ignore": ["node_modules", "frontend", "backend/logs", "backend/dist"]
+  "ignore": ["node_modules", "logs", "tests", "seedscripts", "seeds", "scripts", "testscripts"]
 }
-
-  
