@@ -1,0 +1,70 @@
+name: CI
+
+# Runs the backend jest suite on every pull request into main, and on main
+# itself after a merge. fly-deploy.yml waits for this run to pass on main.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # The same isolated test env as .env.test locally (that file is gitignored).
+    # The three guards in tests/setup.env.js still apply: db ends in _test,
+    # sk_test Stripe key, NODE_ENV=test (set by the npm test script).
+    # Only the Stripe test values are real (some tests create real test-mode
+    # PaymentIntents on the test connected account); the rest are CI dummies.
+    env:
+      PORT: 5100
+      MONGO_URI: mongodb://localhost:27017/tagtelugu_test?replicaSet=rs0
+      JWT_SECRET: ci-only-jwt-secret-not-used-anywhere-else
+      # Chat encryption key: 32 bytes as hex (utils/chat/encryption.js). Locally
+      # the tests pick it up from the dev .env; CI has no .env, so a dummy here.
+      MESSAGE_SECRET_KEY: 00000000000000000000000000000000000000000000000000000000000000ff
+      FRONTEND_API_KEY: test-api-key
+      API_KEY_MODE: enforce
+      FRONTEND_URL: http://localhost:3120
+      WEBSITE_URL: http://localhost:3120
+      SENDER_EMAIL: test@example.com
+      NOTIFICATION_PLATFORM_NAME: DesifyTest
+      NOTIFICATION_PLATFORM_TEAM: Desify Test Team
+      RECAPTCHA_SECRET_KEY: ci-placeholder-skipped-when-node-env-is-test
+      TERMS_VERSION: v1.7
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+      STRIPE_WEBHOOK_SECRET: whsec_ci_placeholder
+      TEST_STRIPE_ACCOUNT_ID: ${{ secrets.TEST_STRIPE_ACCOUNT_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same Node as prod (Dockerfile) and local dev (Dockerfile.dev).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.7.0
+          cache: npm
+
+      # ci, not install: installs exactly what package-lock.json says.
+      - run: npm ci
+
+      # Same Mongo as compose.yaml, as a single-node replica set "rs0": the app
+      # uses transactions (ticket purchase), which need one. Not a service
+      # container, because those cannot pass --replSet.
+      - name: Start Mongo (replica set)
+        run: |
+          docker run -d --name mongo -p 27017:27017 mongo:7.0.14 --replSet rs0 --bind_ip_all
+          for i in $(seq 1 30); do
+            if docker exec mongo mongosh --quiet --eval "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'localhost:27017' }] }).ok }; db.hello().isWritablePrimary || quit(1)" > /dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "mongo never became primary" >&2
+          docker logs mongo >&2
+          exit 1
+
+      - name: Test
+        run: npm test
