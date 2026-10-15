@@ -53,5 +53,5 @@ test('login with a wrong password is rejected', async () => {
   const login = await request(app)
     .post('/api/users/login')
     .send({ email, password: 'wrongpass' });
-  expect(login.status).toBe(401);
+  expect(login.status).toBe(200); // UAT DEMO: deliberately wrong - must go red
 });
