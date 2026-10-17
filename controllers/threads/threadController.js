@@ -13,6 +13,7 @@ import {
 } from '../../utils/notifications/threads/sendThreadNotifications.js';
 import { COMMUNITY_VALUES } from '../../utils/constants/communities.js';
 import { sanitizeThreadHtml, threadTextLength } from '../../utils/helpers/shared/sanitize.js';
+import { refreshFrontendCache } from '../../utils/refreshFrontendCache.js';
 
 // Shared cap: the visible text of a thread description may not exceed this (HTML wrapping excluded).
 const THREAD_TEXT_LIMIT = 15000;
@@ -811,6 +812,9 @@ export const updateThread = asyncHandler(async (req, res) => {
   } catch (notifyErr) {
     console.warn('⚠️ Thread update notification failed:', notifyErr.message);
   }
+
+  // Fresh share previews straight after the edit
+  await refreshFrontendCache(`thread-${updatedThread._id}`);
 
   console.log('✅ === UPDATE THREAD COMPLETE ===');
   return res.status(200).json({

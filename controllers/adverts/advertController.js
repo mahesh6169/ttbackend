@@ -18,6 +18,7 @@ import {
 import { COMMUNITY_VALUES } from '../../utils/constants/communities.js';
 import { getCategoryExpiryDays } from '../../utils/constants/expiryConfig.js';
 import { generateSlug, ensureUniqueSlug } from '../../utils/helpers/shared/generateSlug.js';
+import { refreshFrontendCache } from '../../utils/refreshFrontendCache.js';
 
 const CURATOR_EMAILS = (process.env.CURATOR_EMAILS || '')
   .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
@@ -533,6 +534,9 @@ newImages = newImages.filter(
     } catch (notifyErr) {
       console.warn("⚠️ Update notification email failed:", notifyErr.message);
     }
+
+    // Fresh share previews straight after the edit
+    await refreshFrontendCache(`listing-${updatedAdvert._id}`);
 
     return sendSuccess(res, "Advert updated successfully", { advert: updatedAdvert });
   } catch (error) {

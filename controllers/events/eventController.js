@@ -18,6 +18,7 @@ import {
   sendEventDeletionNotification,
 } from '../../utils/notifications/events/sendEventChangeNotifications.js';
 import { COMMUNITY_VALUES } from '../../utils/constants/communities.js';
+import { refreshFrontendCache } from '../../utils/refreshFrontendCache.js';
 import { generateSlug, ensureUniqueSlug } from '../../utils/helpers/shared/generateSlug.js';
 import {
   parseSharedFields,
@@ -403,6 +404,7 @@ export const updateFreeEvent = asyncHandler(async (req, res) => {
     console.log(`✅ Parent event updated: ${updatedEvent._id}`);
 
     // ✅ NEW: Update all child instances to match parent (Option B)
+    let childInstanceIds = [];
     if (updatedEvent.recurrence?.isRecurring && !updatedEvent.recurrence?.parentEventId) {
       try {
         // Find all child instances
@@ -443,6 +445,7 @@ export const updateFreeEvent = asyncHandler(async (req, res) => {
         });
         
         await Promise.all(updatePromises);
+        childInstanceIds = childInstances.map((child) => child._id);
         console.log(`✅ Successfully updated ${childInstances.length} child instances`);
         
       } catch (err) {
@@ -480,6 +483,9 @@ export const updateFreeEvent = asyncHandler(async (req, res) => {
         console.error("❌ Failed to send attendee notifications:", notifyErr.message);
       });
     }
+
+    // Fresh share previews straight after the edit (instances share the parent's details)
+    await refreshFrontendCache([updatedEvent._id, ...childInstanceIds].map((id) => `event-${id}`));
 
     // ✅ Prepare response
     const response = {
@@ -928,6 +934,9 @@ export const updatePaidEvent = asyncHandler(async (req, res) => {
         console.error("❌ Failed to send ticket holder notifications:", notifyErr.message);
       });
     }
+
+    // Fresh share previews straight after the edit
+    await refreshFrontendCache(`event-${updatedEvent._id}`);
 
     res.status(200).json({
       success: true,

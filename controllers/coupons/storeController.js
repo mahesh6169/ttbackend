@@ -4,6 +4,7 @@ import Campaign from '../../models/coupons/campaign.js';
 import CouponCode from '../../models/coupons/couponCode.js';
 import { generateStoreIdentifier } from '../../utils/coupons/storeIdentifierGenerator.js';
 import { handleLogoUpload, handleLogoUpdate } from '../../utils/coupons/storeImageHelpers.js';
+import { refreshFrontendCache } from '../../utils/refreshFrontendCache.js';
 
 // @desc    Create new store (admin only)
 // @route   POST /api/admin/stores
@@ -364,6 +365,10 @@ export const updateStore = asyncHandler(async (req, res) => {
   const updatedStore = await store.save();
 
   console.log(`✅ Store updated: ${updatedStore.storeName} (${updatedStore.storeIdentifier})`);
+
+  // Campaign previews show the store's name and logo - refresh them all
+  const storeCampaigns = await Campaign.find({ storeId: updatedStore._id }).select('slug').lean();
+  await refreshFrontendCache(storeCampaigns.map((c) => `campaign-${c.slug}`));
 
   res.status(200).json({
     success: true,

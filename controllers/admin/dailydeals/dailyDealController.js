@@ -5,6 +5,7 @@ import User from '../../../models/userModel.js';
 import { generateSlug, ensureUniqueSlug } from '../../../utils/helpers/shared/generateSlug.js';
 import { uploadDealImages, deleteDealImages, updateDealImages } from '../../../utils/dailydeals/dealImageHelpers.js';
 import { stripHtml } from '../../../utils/helpers/shared/sanitize.js';
+import { refreshFrontendCache } from '../../../utils/refreshFrontendCache.js';
 
 const CURATOR_EMAILS = (process.env.CURATOR_EMAILS || '')
   .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
@@ -283,6 +284,9 @@ export const updateDailyDeal = asyncHandler(async (req, res) => {
   await dailyDeal.populate('partnerstoreId', 'businessName category logo');
 
   console.log(`✅ Daily deal updated: ${dailyDeal.dealTitle}`);
+
+  // Fresh share previews straight after the edit
+  await refreshFrontendCache(`deal-${dailyDeal._id}`);
 
   res.status(200).json({
     success: true,
