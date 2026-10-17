@@ -6,6 +6,7 @@ import { uploadDealImages, deleteDealImages, updateDealImages } from '../../util
 import { stripHtml } from '../../utils/helpers/shared/sanitize.js';
 import { addDealNotification, updateDealNotification, deleteDealNotification } from '../../utils/notifications/dailydeals/sendDealNotifications.js';
 import { getCategories } from '../../utils/dailydeals/categoryMappings.js';
+import { refreshFrontendCache } from '../../utils/refreshFrontendCache.js';
 
 const CURATOR_EMAILS = (process.env.CURATOR_EMAILS || '')
   .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
@@ -612,6 +613,9 @@ export const updateDeal = asyncHandler(async (req, res) => {
   } catch (notificationError) {
     console.error('Failed to send deal update notification:', notificationError);
   }
+
+  // Fresh share previews straight after the edit
+  await refreshFrontendCache(`deal-${dailyDeal._id}`);
 
   res.status(200).json({
     success: true,

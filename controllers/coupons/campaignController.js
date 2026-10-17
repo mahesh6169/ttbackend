@@ -4,6 +4,7 @@ import Store from '../../models/coupons/store.js';
 import CouponCode from '../../models/coupons/couponCode.js';
 import { campaignCreatedNotification, campaignUpdatedNotification, campaignRemovedNotification } from '../../utils/notifications/coupons/sendCouponNotifications.js';
 import { generateSlug, ensureUniqueSlug } from '../../utils/helpers/shared/generateSlug.js';
+import { refreshFrontendCache } from '../../utils/refreshFrontendCache.js';
 
 // Accept an array directly (JSON body) or a JSON string (multipart), else fall back.
 const parseArray = (value, fallback = []) => {
@@ -455,6 +456,9 @@ export const updateCampaign = asyncHandler(async (req, res) => {
       changes
     }).catch(err => console.error('Campaign update notification error:', err));
   }
+
+  // Fresh share previews straight after the edit
+  await refreshFrontendCache(`campaign-${updatedCampaign.slug}`);
 
   res.status(200).json({
     success: true,

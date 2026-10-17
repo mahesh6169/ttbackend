@@ -37,6 +37,10 @@ services:
       # .env is loaded by server.js (dotenv never overrides vars already set),
       # so this points the app at the Mongo container without editing .env.
       MONGO_URI: mongodb://tt-mongo:27017/tagtelugu?replicaSet=rs0
+      # Share-preview refresh (utils/refreshFrontendCache.js): reach the frontend container
+      # directly; local-only throwaway secret, must match ttfrontend/compose.yaml.
+      REVALIDATE_URL: http://tt-frontend:3020
+      REVALIDATION_SECRET: local-only-revalidation-secret
     depends_on:
       tt-mongo:
         condition: service_healthy
