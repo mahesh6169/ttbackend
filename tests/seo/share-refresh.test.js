@@ -123,6 +123,21 @@ test('without a secret configured nothing is sent, and the edit still saves', as
   expect(calls).toEqual([]);
 });
 
+test('without REVALIDATE_URL the first FRONTEND_URL entry (the CORS list) is used', async () => {
+  const saved = process.env.FRONTEND_URL;
+  process.env.FRONTEND_URL = `${process.env.REVALIDATE_URL}, https://www.example.test`;
+  delete process.env.REVALIDATE_URL;
+  try {
+    const organiser = await createOrganiser();
+    const event = await createFreeEvent(organiser);
+    const res = await updateFree(organiser, event._id, { title: 'Refreshed Via Frontend Url' });
+    expect(res.status).toBe(200);
+    expect(tags()).toEqual([`event-${event._id}`]);
+  } finally {
+    process.env.FRONTEND_URL = saved;
+  }
+});
+
 test('an unreachable frontend does not fail the edit', async () => {
   process.env.REVALIDATE_URL = 'http://127.0.0.1:9'; // nothing listens on the discard port
   const organiser = await createOrganiser();

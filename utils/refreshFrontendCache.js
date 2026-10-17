@@ -7,7 +7,8 @@ import axios from 'axios';
 // but it never throws: a failed refresh only means the page updates when its cache expires.
 export const refreshFrontendCache = async (tags) => {
   const secret = process.env.REVALIDATION_SECRET;
-  const baseUrl = process.env.REVALIDATE_URL || process.env.FRONTEND_URL;
+  // FRONTEND_URL is the comma-separated CORS list (app.js) - its first entry is the site itself.
+  const baseUrl = (process.env.REVALIDATE_URL || process.env.FRONTEND_URL || '').split(',')[0].trim();
   const list = [...new Set((Array.isArray(tags) ? tags : [tags]).filter(Boolean))];
 
   if (!secret || !baseUrl || list.length === 0) return;
