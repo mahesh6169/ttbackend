@@ -138,18 +138,18 @@ export const createPaidEvent = (organiser, overrides = {}) =>
 // (postedBy String, isPaid, status:'active') the paid check-in endpoints authorise against, and a
 // unique ticketNumber/invoiceNumber. Note PaidTicket.event is a STRING (not ObjectId). Override
 // ticketNumber, invoiceNumber, attendees, checkInStatus ('confirmed'|'checked-in'|'cancelled'),
-// ticketType, seats, formResponses, buyer.
+// ticketType, seats, formResponses, buyer, and price (sets ticketType.price + priceDetails; default 10).
 let paidTicketSeq = 0;
 export const createPaidTicket = (event, buyerUser, overrides = {}) => {
-  const { attendees, ticketNumber, invoiceNumber, checkInStatus, ticketType, seats, formResponses, buyer, ...rest } = overrides;
+  const { attendees, ticketNumber, invoiceNumber, checkInStatus, ticketType, seats, formResponses, buyer, price = 10, ...rest } = overrides;
   const n = `${uniq()}${paidTicketSeq++}`.toUpperCase();
   return PaidTicket.create({
     event: String(event._id),
     ticketNumber: ticketNumber || `TKT-${n}`,
     invoiceNumber: invoiceNumber || `INV-${n}`,
     user: buyerUser._id,
-    ticketType: ticketType || { name: 'Standard', price: 10 },
-    priceDetails: { basePrice: 10, totalPrice: 10 },
+    ticketType: ticketType || { name: 'Standard', price },
+    priceDetails: { basePrice: price, totalPrice: price },
     seats: seats || [],
     buyer: buyer || { firstName: 'Buyer', lastName: 'One', email: buyerUser.email, agreedToTerms: true },
     attendees: attendees || [{ name: 'Buyer One', checkedIn: false }],
