@@ -115,6 +115,10 @@ const validationRules = {
     // Travel requests: a "Fixed amount" budget needs an amount of zero or more
     // (the budget lives in fields, not in the pricing list).
     if (data.fields && TRAVEL_REQUEST_SUBCATEGORIES.includes(data.subcategory || subcategory)) {
+      const travelDate = data.fields.travelDate;
+      if (travelDate && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(travelDate)) {
+        errors.push('Travel date must look like 2026-12-20T17:00');
+      }
       const budgetType = data.fields.budgetType;
       const amount = Number(data.fields.budgetAmount);
       if (budgetType === 'Fixed amount' && (data.fields.budgetAmount === '' || data.fields.budgetAmount == null || Number.isNaN(amount) || amount < 0)) {

@@ -51,3 +51,12 @@ test('Travel Requests ads expire after 60 days', () => {
   expect(getCategoryExpiryDays('Parcel Carrying')).toBe(60);
   expect(getCategoryExpiryDays('Travel Companion for Parents')).toBe(60);
 });
+
+test('a travel date must be a plain date and time; empty is fine', () => {
+  const ok = check(travelAd({ travelDate: '2026-12-20T17:00', budgetType: 'Negotiable' }));
+  expect(ok.valid).toBe(true);
+  expect(check(travelAd({ budgetType: 'Negotiable' })).valid).toBe(true);
+  const bad = check(travelAd({ travelDate: '20 Dec', budgetType: 'Negotiable' }));
+  expect(bad.valid).toBe(false);
+  expect(bad.errors.join(' ')).toMatch(/Travel date/);
+});
