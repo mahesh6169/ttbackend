@@ -79,6 +79,10 @@ export const CATEGORY_EXPIRY_DAYS = {
   'Butchers': 365,
   'Plant Nursery': 365,
 
+  // Travel requests (tied to a travel date, so shorter)
+  'Parcel Carrying': 60,
+  'Travel Companion for Parents': 60,
+
   // Child & Aged Care
   'Childcare & Babysitting': 365,
   'Aged Parent Care': 365,

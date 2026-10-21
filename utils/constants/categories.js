@@ -144,6 +144,13 @@ export const CATEGORIES = [
     ],
   },
   {
+    label: 'Travel Requests',
+    subcategories: [
+      'Parcel Carrying',
+      'Travel Companion for Parents',
+    ],
+  },
+  {
     label: 'Marketing & Advertising',
     subcategories: [
       'Logo Services',
@@ -182,6 +189,12 @@ const NON_SERVICE_SUBCATEGORIES = [
   'Part Time',
   // Food & Catering (fixed location - customers come to them)
   'Restaurants & Cafes',
+];
+
+// Travel Requests sub-categories (budget is stored in fields: budgetType / budgetAmount)
+export const TRAVEL_REQUEST_SUBCATEGORIES = [
+  'Parcel Carrying',
+  'Travel Companion for Parents',
 ];
 
 // Get all parent category names
