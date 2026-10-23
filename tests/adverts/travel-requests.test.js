@@ -28,12 +28,12 @@ test('Travel Requests offers Parcel Carrying and Travel Companion for Parents', 
 });
 
 test('a Wanted parcel request with a fixed budget is accepted without a price list', () => {
-  const res = check(travelAd({ fromPlace: 'NSW', toPlace: 'India', budgetType: 'Fixed amount', budgetAmount: 40 }));
+  const res = check(travelAd({ fromPlace: 'Sydney / NSW', toPlace: 'India', toCity: 'Hyderabad', budgetType: 'Fixed amount', budgetAmount: 40 }));
   expect(res).toEqual({ valid: true, errors: [] });
 });
 
 test('Free and Negotiable budgets need no amount', () => {
-  for (const budgetType of ['Free (favour)', 'Negotiable']) {
+  for (const budgetType of ['Favour', 'Negotiable']) {
     const res = check(travelAd({ budgetType }, { subcategory: 'Travel Companion for Parents' }));
     expect(res).toEqual({ valid: true, errors: [] });
   }
@@ -52,11 +52,23 @@ test('Travel Requests ads expire after 60 days', () => {
   expect(getCategoryExpiryDays('Travel Companion for Parents')).toBe(60);
 });
 
-test('a travel date must be a plain date and time; empty is fine', () => {
-  const ok = check(travelAd({ travelDate: '2026-12-20T17:00', budgetType: 'Negotiable' }));
+test('a travel date must be a plain date; empty is fine', () => {
+  const ok = check(travelAd({ travelDate: '2026-12-20', budgetType: 'Negotiable' }));
   expect(ok.valid).toBe(true);
   expect(check(travelAd({ budgetType: 'Negotiable' })).valid).toBe(true);
   const bad = check(travelAd({ travelDate: '20 Dec', budgetType: 'Negotiable' }));
   expect(bad.valid).toBe(false);
   expect(bad.errors.join(' ')).toMatch(/Travel date/);
+});
+
+test('From and To are fixed places; India also needs a city, and one end must be in Australia', () => {
+  const route = (extra) => check(travelAd({ budgetType: 'Negotiable', ...extra }));
+  expect(route({ fromPlace: 'Perth / WA', toPlace: 'Sydney / NSW' }).valid).toBe(true);
+  expect(route({ fromPlace: 'India', fromCity: 'Hyderabad', toPlace: 'Sydney / NSW' }).valid).toBe(true);
+  expect(route({ fromPlace: 'Sydney / NSW', toPlace: 'India', toCity: 'Chennai' }).valid).toBe(true);
+  expect(route({ fromPlace: 'India', fromCity: 'Delhi', toPlace: 'India', toCity: 'Chennai' }).valid).toBe(false);
+  expect(route({ fromPlace: 'Atlantis', toPlace: 'Sydney / NSW' }).valid).toBe(false);
+  const noCity = route({ fromPlace: 'India', toPlace: 'Sydney / NSW' });
+  expect(noCity.valid).toBe(false);
+  expect(noCity.errors.join(' ')).toMatch(/from city/);
 });

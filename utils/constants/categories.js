@@ -197,6 +197,14 @@ export const TRAVEL_REQUEST_SUBCATEGORIES = [
   'Travel Companion for Parents',
 ];
 
+// Fixed From / To places for Travel Requests. India also needs a city (fromCity / toCity).
+export const TRAVEL_OVERSEAS_PLACES = ['India'];
+export const TRAVEL_PLACES = [
+  'Sydney / NSW', 'Melbourne / VIC', 'Brisbane / QLD', 'Perth / WA',
+  'Adelaide / SA', 'Hobart / TAS', 'Darwin / NT', 'Canberra / ACT',
+  ...TRAVEL_OVERSEAS_PLACES,
+];
+
 // Get all parent category names
 export function getAllParentCategories() {
   return CATEGORIES.map((cat) => cat.label);
