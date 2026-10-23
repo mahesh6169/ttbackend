@@ -1,7 +1,7 @@
 // utils/validators/advertValidator.js
 
 import { isPricingRequired } from '../constants/pricingConfig.js';
-import { isValidCategoryCombo, getAllSubcategories } from '../constants/categories.js';
+import { isValidCategoryCombo, getAllSubcategories, TRAVEL_REQUEST_SUBCATEGORIES, TRAVEL_PLACES, TRAVEL_OVERSEAS_PLACES } from '../constants/categories.js';
 import { validateTitle } from '../helpers/shared/validateTitle.js';
 
 // Validation configuration
@@ -109,6 +109,31 @@ const validationRules = {
             }
           });
         }
+      }
+    }
+
+    // Travel requests: a "Fixed amount" budget needs an amount of zero or more
+    // (the budget lives in fields, not in the pricing list).
+    if (data.fields && TRAVEL_REQUEST_SUBCATEGORIES.includes(data.subcategory || subcategory)) {
+      const travelDate = data.fields.travelDate;
+      if (travelDate && !/^\d{4}-\d{2}-\d{2}$/.test(travelDate)) {
+        errors.push('Travel date must look like 2026-12-20');
+      }
+      for (const side of ['from', 'to']) {
+        const place = data.fields[`${side}Place`];
+        if (place && !TRAVEL_PLACES.includes(place)) {
+          errors.push(`Invalid ${side} place: ${place}`);
+        } else if (TRAVEL_OVERSEAS_PLACES.includes(place) && !String(data.fields[`${side}City`] || '').trim()) {
+          errors.push(`Please enter the ${side} city`);
+        }
+      }
+      if (TRAVEL_OVERSEAS_PLACES.includes(data.fields.fromPlace) && TRAVEL_OVERSEAS_PLACES.includes(data.fields.toPlace)) {
+        errors.push('One end of the trip must be in Australia');
+      }
+      const budgetType = data.fields.budgetType;
+      const amount = Number(data.fields.budgetAmount);
+      if (budgetType === 'Fixed amount' && (data.fields.budgetAmount === '' || data.fields.budgetAmount == null || Number.isNaN(amount) || amount < 0)) {
+        errors.push('Budget amount must be a number of 0 or more');
       }
     }
 

@@ -144,6 +144,13 @@ export const CATEGORIES = [
     ],
   },
   {
+    label: 'Travel Companion & Parcels',
+    subcategories: [
+      'Parcel',
+      'Travel Companion',
+    ],
+  },
+  {
     label: 'Marketing & Advertising',
     subcategories: [
       'Logo Services',
@@ -182,6 +189,20 @@ const NON_SERVICE_SUBCATEGORIES = [
   'Part Time',
   // Food & Catering (fixed location - customers come to them)
   'Restaurants & Cafes',
+];
+
+// Travel Requests sub-categories (budget is stored in fields: budgetType / budgetAmount)
+export const TRAVEL_REQUEST_SUBCATEGORIES = [
+  'Parcel',
+  'Travel Companion',
+];
+
+// Fixed From / To places for Travel Requests. India also needs a city (fromCity / toCity).
+export const TRAVEL_OVERSEAS_PLACES = ['India'];
+export const TRAVEL_PLACES = [
+  'Sydney / NSW', 'Melbourne / VIC', 'Brisbane / QLD', 'Perth / WA',
+  'Adelaide / SA', 'Hobart / TAS', 'Darwin / NT', 'Canberra / ACT',
+  ...TRAVEL_OVERSEAS_PLACES,
 ];
 
 // Get all parent category names
