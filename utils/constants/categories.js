@@ -144,10 +144,10 @@ export const CATEGORIES = [
     ],
   },
   {
-    label: 'Travel Requests',
+    label: 'Travel Companion & Parcels',
     subcategories: [
-      'Parcel Carrying',
-      'Travel Companion for Parents',
+      'Parcel',
+      'Travel Companion',
     ],
   },
   {
@@ -193,8 +193,8 @@ const NON_SERVICE_SUBCATEGORIES = [
 
 // Travel Requests sub-categories (budget is stored in fields: budgetType / budgetAmount)
 export const TRAVEL_REQUEST_SUBCATEGORIES = [
-  'Parcel Carrying',
-  'Travel Companion for Parents',
+  'Parcel',
+  'Travel Companion',
 ];
 
 // Fixed From / To places for Travel Requests. India also needs a city (fromCity / toCity).

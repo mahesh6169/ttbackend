@@ -9,8 +9,8 @@ const address = JSON.stringify({ formattedAddress: '1 Test St, Parramatta NSW 21
 
 const travelAd = (fields, overrides = {}) => ({
   title: 'Parcel Sydney to Hyderabad',
-  category: 'Travel Requests',
-  subcategory: 'Parcel Carrying',
+  category: 'Travel Companion & Parcels',
+  subcategory: 'Parcel',
   description: 'Small box, about 2 kg.',
   adType: 'wanted',
   pricing: [],
@@ -21,10 +21,10 @@ const travelAd = (fields, overrides = {}) => ({
 
 const check = (data) => validateAdvertData(data, 'user', data.subcategory);
 
-test('Travel Requests offers Parcel Carrying and Travel Companion for Parents', () => {
-  expect(isValidCategoryCombo('Travel Requests', 'Parcel Carrying')).toBe(true);
-  expect(isValidCategoryCombo('Travel Requests', 'Travel Companion for Parents')).toBe(true);
-  expect(isValidCategoryCombo('Buy & Sell', 'Parcel Carrying')).toBe(false);
+test('Travel Companion & Parcels offers Parcel and Travel Companion', () => {
+  expect(isValidCategoryCombo('Travel Companion & Parcels', 'Parcel')).toBe(true);
+  expect(isValidCategoryCombo('Travel Companion & Parcels', 'Travel Companion')).toBe(true);
+  expect(isValidCategoryCombo('Buy & Sell', 'Parcel')).toBe(false);
 });
 
 test('a Wanted parcel request with a fixed budget is accepted without a price list', () => {
@@ -34,7 +34,7 @@ test('a Wanted parcel request with a fixed budget is accepted without a price li
 
 test('Free and Negotiable budgets need no amount', () => {
   for (const budgetType of ['Favour', 'Negotiable']) {
-    const res = check(travelAd({ budgetType }, { subcategory: 'Travel Companion for Parents' }));
+    const res = check(travelAd({ budgetType }, { subcategory: 'Travel Companion' }));
     expect(res).toEqual({ valid: true, errors: [] });
   }
 });
@@ -47,9 +47,9 @@ test('a Fixed amount budget with no amount or a negative amount is refused', () 
   }
 });
 
-test('Travel Requests ads expire after 60 days', () => {
-  expect(getCategoryExpiryDays('Parcel Carrying')).toBe(60);
-  expect(getCategoryExpiryDays('Travel Companion for Parents')).toBe(60);
+test('Travel Companion & Parcels ads expire after 60 days', () => {
+  expect(getCategoryExpiryDays('Parcel')).toBe(60);
+  expect(getCategoryExpiryDays('Travel Companion')).toBe(60);
 });
 
 test('a travel date must be a plain date; empty is fine', () => {
