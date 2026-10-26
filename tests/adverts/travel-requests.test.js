@@ -1,4 +1,4 @@
-// Listings > Travel Requests (parcel carrying, travel companion for parents): the category exists,
+// Listings > Travel Companion & Parcels (parcel, travel companion): the category exists,
 // a Wanted ad needs no price list, a "Fixed amount" budget (kept in fields) must be 0 or more,
 // and these ads expire after 60 days.
 import { validateAdvertData } from '../../utils/validators/advertValidator.js';
