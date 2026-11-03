@@ -33,7 +33,7 @@ export const generateCode = asyncHandler(async (req, res) => {
   const populatedCode = await CouponCode.findById(couponCode._id)
     .populate('campaignId')
     .populate('storeId')
-    .populate('userId');
+    .populate('userId', 'name email firstName'); // only what the emails need (feature 1012 security sweep)
 
   // Fire-and-forget email notifications
   codeGeneratedNotification({
@@ -119,7 +119,7 @@ export const claimGuestCode = asyncHandler(async (req, res) => {
   const populatedCode = await CouponCode.findById(couponCode._id)
     .populate('campaignId')
     .populate('storeId')
-    .populate('userId');
+    .populate('userId', 'name email firstName'); // only what the emails need (feature 1012 security sweep)
 
   codeGeneratedNotification({
     couponCode: populatedCode,

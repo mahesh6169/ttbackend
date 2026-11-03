@@ -56,6 +56,13 @@ const threadSchema = new mongoose.Schema(
       lowercase: true
     }],
 
+    // Group chat switch (feature 1012): the author (or an admin) can turn the chat off.
+    // Off = no new messages are accepted; old messages are kept and show again when switched on.
+    allowChat: {
+      type: Boolean,
+      default: true,
+    },
+
     // ✅ Curated thread flag (auto-set when creator's email is in CURATOR_EMAILS)
     isCuratedThread: {
       type: Boolean,

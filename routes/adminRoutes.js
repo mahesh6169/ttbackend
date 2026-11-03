@@ -36,6 +36,7 @@ import {
 import {
   getManageThreads,
   deleteThreadById,
+  moderateThread,
 } from '../controllers/admin/threads/manageThreadController.js';
 
 // Daily Deals Controllers
@@ -132,6 +133,7 @@ router.put('/platform-settings', authAdminMiddleware, updateAdminSettings);
 // ✅ Thread management routes (Admin Only)
 router.get('/threads/manage', authAdminMiddleware, getManageThreads);
 router.delete('/threads/byid/:id', authAdminMiddleware, deleteThreadById);
+router.patch('/threads/:id/moderate', authAdminMiddleware, moderateThread); // category + chat switch only (feature 1012)
 
 // ✅ Banner Ad management routes (Admin Only)
 
