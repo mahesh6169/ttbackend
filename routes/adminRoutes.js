@@ -57,6 +57,7 @@ import {
 } from '../controllers/admin/dailydeals/partnerStoreController.js';
 
 import authAdminMiddleware from '../middlewares/authAdminMiddleware.js';
+import { getAdminSettings, updateAdminSettings } from '../controllers/platformSettingController.js';
 
 // Banner Ad Controllers
 import {
@@ -123,6 +124,10 @@ router.patch('/events/:id/block', authAdminMiddleware, blockEventById);
 router.get('/events/paid-events-list', authAdminMiddleware, getPaidEventsList);
 router.get('/events/:eventId/platform-fee', authAdminMiddleware, getEventPlatformFee);
 router.put('/events/:eventId/platform-fee', authAdminMiddleware, updateEventPlatformFee);
+
+// Platform settings - site-wide switches (Admin Only)
+router.get('/platform-settings', authAdminMiddleware, getAdminSettings);
+router.put('/platform-settings', authAdminMiddleware, updateAdminSettings);
 
 // ✅ Thread management routes (Admin Only)
 router.get('/threads/manage', authAdminMiddleware, getManageThreads);
