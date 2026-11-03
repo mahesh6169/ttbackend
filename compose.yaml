@@ -19,10 +19,16 @@ services:
     # Initiates the replica set on first start; healthy once it's primary.
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'tt-mongo:27017' }] }).ok }; db.hello().isWritablePrimary || quit(1)"]
-      interval: 5s
+      # Every probe starts a mongosh (a Node process): at 5s that alone kept
+      # an idle Mongo at ~40% of a core. Probe fast only while starting up.
+      interval: 30s
+      start_interval: 5s
       timeout: 10s
       retries: 20
-      start_period: 10s
+      start_period: 60s
+    # Ceilings, not reservations (see ../ttfrontend/compose.yaml).
+    cpus: 2
+    mem_limit: 3g
     # No ports published and not on "edge": only the backend can reach it.
 
   tt-backend:
@@ -37,6 +43,9 @@ services:
       # .env is loaded by server.js (dotenv never overrides vars already set),
       # so this points the app at the Mongo container without editing .env.
       MONGO_URI: mongodb://tt-mongo:27017/tagtelugu?replicaSet=rs0
+    # Ceilings, not reservations (see ../ttfrontend/compose.yaml).
+    cpus: 2
+    mem_limit: 2g
     depends_on:
       tt-mongo:
         condition: service_healthy
