@@ -240,10 +240,12 @@ const threadLegacy = await createThread(member, {
 });
 
 // Feature 1012 blog-style post: headings, a map link, one picture, a set of 3, in that order, with
-// an author name that replaces the account name. Pictures use a real public Cloudinary image so they
-// load in the browser (seeded straight into the DB, so the sanitiser's folder rule is not involved).
-const BLOG_PIC = 'https://res.cloudinary.com/dtvrbdvkx/image/upload/v1764066113/ogshare_v4_psldb7.jpg';
-const blogImg = (alt) => `<img src="${BLOG_PIC}" alt="${alt}" width="1200" height="630" />`;
+// an author name that replaces the account name. Picture URLs must be in our threads folder: the
+// public thread endpoint re-sanitises on read and drops any other picture. (They need not exist -
+// the page reserves their space from width/height and the specs never depend on the bytes.)
+const BLOG_CLOUD = process.env.CLOUDINARY_CLOUD_NAME || 'dtvrbdvkx';
+const blogImg = (alt) =>
+  `<img src="https://res.cloudinary.com/${BLOG_CLOUD}/image/upload/v1/tagtelugudev/threads/e2e-${alt.toLowerCase().replace(/[^a-z]+/g, '-')}.jpg" alt="${alt}" width="1200" height="630" />`;
 const threadBlog = await createThread(member, {
   title: 'E2E Blog Thread',
   category: 'Food & Dining',
