@@ -4,6 +4,8 @@ import ThreadMessage from '../../../models/threadMessageModel.js';
 import User from '../../../models/userModel.js';
 import { deleteThreadNotification } from '../../../utils/notifications/threads/sendThreadNotifications.js';
 import cloudinary from '../../../utils/cloudinary.js';
+import { THREAD_CATEGORIES } from '../../../utils/constants/threadCategories.js';
+import { refreshFrontendCache, THREADS_LIST_TAG } from '../../../utils/refreshFrontendCache.js';
 
 // @desc    Get all threads for moderation with pagination
 // @route   GET /api/admin/threads/manage
@@ -28,7 +30,11 @@ export const getManageThreads = asyncHandler(async (req, res) => {
       title: thread.title,
       authorName: thread.owner?.name || 'Unknown',
       authorEmail: thread.owner?.email || 'N/A',
-      createdAt: thread.createdAt
+      createdAt: thread.createdAt,
+      // Feature 1012 moderation: shown and changed on the admin moderation pages.
+      ownerId: thread.owner?._id || null,
+      category: thread.category,
+      allowChat: thread.allowChat !== false,
     }));
 
     return res.status(200).json({
@@ -107,6 +113,7 @@ export const deleteThreadById = asyncHandler(async (req, res) => {
 
     // Delete the thread
     await Thread.deleteOne({ _id: threadId });
+    await refreshFrontendCache([`thread-${threadId}`, THREADS_LIST_TAG]);
 
     return res.status(200).json({
       success: true,
@@ -121,4 +128,37 @@ export const deleteThreadById = asyncHandler(async (req, res) => {
       error: error.message 
     });
   }
+});
+// @desc    Moderate someone's thread (feature 1012): change its category and/or turn its chat on/off.
+//          Admins cannot change another person's words or pictures - only these two settings.
+// @route   PATCH /api/admin/threads/:id/moderate   body: { category?, allowChat? }
+// @access  Admin only
+export const moderateThread = asyncHandler(async (req, res) => {
+  const { category, allowChat } = req.body || {};
+  const update = {};
+
+  if (category !== undefined) {
+    if (!THREAD_CATEGORIES.includes(category)) {
+      return res.status(400).json({ success: false, message: 'Unknown category.' });
+    }
+    update.category = category;
+  }
+  if (allowChat !== undefined) {
+    if (typeof allowChat !== 'boolean') {
+      return res.status(400).json({ success: false, message: 'allowChat must be true or false.' });
+    }
+    update.allowChat = allowChat;
+  }
+  if (Object.keys(update).length === 0) {
+    return res.status(400).json({ success: false, message: 'Nothing to change.' });
+  }
+
+  const thread = await Thread.findByIdAndUpdate(req.params.id, { $set: update }, { new: true })
+    .select('_id title category allowChat owner');
+  if (!thread) {
+    return res.status(404).json({ success: false, message: 'Thread not found' });
+  }
+
+  await refreshFrontendCache([`thread-${thread._id}`, THREADS_LIST_TAG]);
+  return res.status(200).json({ success: true, thread });
 });

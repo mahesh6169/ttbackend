@@ -172,10 +172,11 @@ pipeline.push({ $sort: sortOptions });
     
     // Clean up user data
     pipeline.push({
-      $project: {
-        'user.password': 0,
-        'user.email': 0,
-        'user.phone': 0
+      // Public search: send ONLY the poster's id and name, never the rest of their account
+      // (mobile, role, location, reset/verify codes...). Feature 1012 security fix.
+      $set: {
+        // $mergeObjects makes this an expression, so user is REPLACED, not merged into.
+        user: { $mergeObjects: [{ _id: '$user._id', name: '$user.name' }] }
       }
     });
     

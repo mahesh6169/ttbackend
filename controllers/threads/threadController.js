@@ -1,6 +1,7 @@
 import asyncHandler from 'express-async-handler';
 import Thread from '../../models/threadModel.js';
 import ThreadMessage from '../../models/threadMessageModel.js';
+import ThreadPictureUpload from '../../models/threadPictureUploadModel.js';
 import User from '../../models/userModel.js';
 import { getIO } from '../../socket/index.js';
 import cloudinary from '../../utils/cloudinary.js';
@@ -13,7 +14,14 @@ import {
 } from '../../utils/notifications/threads/sendThreadNotifications.js';
 import { COMMUNITY_VALUES } from '../../utils/constants/communities.js';
 import { sanitizeThreadHtml, threadTextLength } from '../../utils/helpers/shared/sanitize.js';
-import { refreshFrontendCache } from '../../utils/refreshFrontendCache.js';
+import {
+  THREAD_PICTURE_LIMIT,
+  extractThreadPictures,
+  threadPictureFolder,
+  publicIdFromUrl,
+} from '../../utils/helpers/shared/threadPictures.js';
+import { refreshFrontendCache, THREADS_LIST_TAG } from '../../utils/refreshFrontendCache.js';
+import { AUTHOR_NAME_MAX } from '../../utils/helpers/shared/threadDisplayName.js';
 
 // Shared cap: the visible text of a thread description may not exceed this (HTML wrapping excluded).
 const THREAD_TEXT_LIMIT = 15000;
@@ -21,6 +29,52 @@ const THREAD_TEXT_LIMIT = 15000;
 const CURATOR_EMAILS = (process.env.CURATOR_EMAILS || '')
   .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 
+
+
+// Feature 1012: the new editor sends picturesInText=true. Then the post HTML is the only source of
+// pictures (images[] is derived from it) and any multipart files are ignored. Without the flag the
+// old photo-box path runs unchanged, so the previous frontend keeps working during the switch-over.
+const isTrue = (v) => v === true || v === 'true' || v === '1';
+
+// Chat switch from a form field; undefined when the field was not sent (keep the current value).
+const parseAllowChat = (v) => {
+  if (v === undefined || v === null || v === '') return undefined;
+  return isTrue(v);
+};
+
+// Delete thread pictures that are no longer used. Only ever touches the threads folder.
+const destroyThreadPictures = async (images) => {
+  const folder = threadPictureFolder();
+  for (const img of images) {
+    if (!img?.publicId || !img.publicId.startsWith(`${folder}/`)) continue;
+    try {
+      await cloudinary.uploader.destroy(img.publicId);
+    } catch (err) {
+      console.error(`Thread picture delete failed for ${img.publicId}:`, err.message);
+    }
+  }
+};
+
+// Tidy-up of pictures uploaded from the editor but never used in a saved thread (Cancel, closed page,
+// never pressed Create). Runs in the background on each picture upload, so no scheduled job is
+// needed. A picture older than 24 hours is deleted unless a thread uses it; either way its note goes.
+const UNUSED_PICTURE_AGE_MS = 24 * 60 * 60 * 1000;
+export const tidyUnusedThreadPictures = async ({ now = Date.now(), batch = 50 } = {}) => {
+  const old = await ThreadPictureUpload.find({ createdAt: { $lt: new Date(now - UNUSED_PICTURE_AGE_MS) } })
+    .sort({ createdAt: 1 })
+    .limit(batch)
+    .lean();
+  if (!old.length) return { checked: 0, deleted: 0 };
+  const ids = old.map((n) => n.publicId);
+  const used = new Set(
+    (await Thread.find({ 'images.publicId': { $in: ids } }).select('images.publicId').lean())
+      .flatMap((t) => (t.images || []).map((img) => img.publicId))
+  );
+  const unused = old.filter((n) => !used.has(n.publicId)).map((n) => ({ publicId: n.publicId }));
+  await destroyThreadPictures(unused);
+  await ThreadPictureUpload.deleteMany({ _id: { $in: old.map((n) => n._id) } });
+  return { checked: old.length, deleted: unused.length };
+};
 
 // Helper function to generate optimized image URLs
 const generateOptimizedImageUrls = (images) => {
@@ -73,6 +127,8 @@ const generateOptimizedImageUrls = (images) => {
 // Create a Thread
 export const createThread = asyncHandler(async (req, res) => {
   let { title, question, category, suburb, communities, author } = req.body;
+  const picturesInText = isTrue(req.body.picturesInText);
+  const allowChat = parseAllowChat(req.body.allowChat);
   const userId = req.user?.id;
 
   console.log('🧵 === CREATE THREAD REQUEST ===');
@@ -100,6 +156,10 @@ export const createThread = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: `Description must be ${THREAD_TEXT_LIMIT} characters or less.` });
   }
   question = sanitizeThreadHtml(question);
+  const textPictures = picturesInText ? extractThreadPictures(question) : [];
+  if (textPictures.length > THREAD_PICTURE_LIMIT) {
+    return res.status(400).json({ message: `A thread can have up to ${THREAD_PICTURE_LIMIT} pictures.` });
+  }
 
   // Parse and validate communities
   let parsedCommunities = [];
@@ -135,6 +195,15 @@ export const createThread = asyncHandler(async (req, res) => {
       return res.status(400).json({ message: 'Invalid JSON format for author data' });
     }
   }
+  // Feature 1012: the new editor makes the author name a must (it is the name shown on the thread).
+  if (picturesInText && (author !== undefined || req.method === 'POST')) {
+    const authorName = (parsedAuthor?.name || '').trim();
+    if (!authorName) return res.status(400).json({ message: 'Please add the author name.' });
+    if (authorName.length > AUTHOR_NAME_MAX) {
+      return res.status(400).json({ message: `Author name must be ${AUTHOR_NAME_MAX} characters or less.` });
+    }
+    parsedAuthor.name = authorName;
+  }
 
   // ✅ Parse suburb if sent as string
   if (typeof suburb === 'string') {
@@ -166,69 +235,73 @@ export const createThread = asyncHandler(async (req, res) => {
   const folderName = process.env.NODE_ENV === 'production' ? 'tagtelugu' : 'tagtelugudev';
   let imagesDetails = [];
 
-  // Handle both old array format and new fields format from multer
-  let fileArray = [];
-  if (req.files) {
-    if (Array.isArray(req.files)) {
-      fileArray = req.files;
-    } else if (req.files.images) {
-      // When using .fields(), images are in req.files.images
-      fileArray = req.files.images;
-    }
-  }
-  const validFiles = fileArray.filter(file => file && file.size > 0);
-
-  // Validate image types and sizes
-  const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-  const maxSize = 10 * 1024 * 1024; // 10MB per image
-  const maxImages = 10; // Maximum number of images allowed
-
-  // Check maximum image limit
-  if (validFiles.length > maxImages) {
-    return res.status(400).json({ message: `Maximum ${maxImages} images allowed` });
-  }
-
-  // Validate each image
-  for (let i = 0; i < validFiles.length; i++) {
-    const file = validFiles[i];
-    
-    // Check file type
-    if (!allowedTypes.includes(file.mimetype)) {
-      return res.status(400).json({ 
-        message: `Image ${i + 1}: Only JPEG, PNG, and WebP formats are allowed`
-      });
-    }
-    
-    // Check file size
-    if (file.size > maxSize) {
-      return res.status(400).json({ 
-        message: `Image ${i + 1}: File size must be under 10MB`
-      });
-    }
-  }
-
-  if (validFiles.length > 0) {
-    try {
-      for (const file of validFiles) {
-        const result = await cloudinary.uploader.upload(
-          `data:${file.mimetype};base64,${file.buffer.toString('base64')}`,
-          {
-            folder: `${folderName}/threads`,
-            transformation: [
-              { 
-                fetch_format: 'auto', 
-                quality: 'auto:good',
-                width: 1200,
-                height: 1200,
-                crop: 'limit'
-              }
-            ],
-          }
-        );
-        imagesDetails.push({ url: result.secure_url, publicId: result.public_id, originalFilename: file.originalname });
+  if (picturesInText) {
+    imagesDetails = textPictures;
+  } else {
+    // Handle both old array format and new fields format from multer
+    let fileArray = [];
+    if (req.files) {
+      if (Array.isArray(req.files)) {
+        fileArray = req.files;
+      } else if (req.files.images) {
+        // When using .fields(), images are in req.files.images
+        fileArray = req.files.images;
       }
-    } catch (error) {
-      return res.status(500).json({ message: "Image upload failed: " + error.message });
+    }
+    const validFiles = fileArray.filter(file => file && file.size > 0);
+
+    // Validate image types and sizes
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    const maxSize = 10 * 1024 * 1024; // 10MB per image
+    const maxImages = 10; // Maximum number of images allowed
+
+    // Check maximum image limit
+    if (validFiles.length > maxImages) {
+      return res.status(400).json({ message: `Maximum ${maxImages} images allowed` });
+    }
+
+    // Validate each image
+    for (let i = 0; i < validFiles.length; i++) {
+      const file = validFiles[i];
+    
+      // Check file type
+      if (!allowedTypes.includes(file.mimetype)) {
+        return res.status(400).json({ 
+          message: `Image ${i + 1}: Only JPEG, PNG, and WebP formats are allowed`
+        });
+      }
+    
+      // Check file size
+      if (file.size > maxSize) {
+        return res.status(400).json({ 
+          message: `Image ${i + 1}: File size must be under 10MB`
+        });
+      }
+    }
+
+    if (validFiles.length > 0) {
+      try {
+        for (const file of validFiles) {
+          const result = await cloudinary.uploader.upload(
+            `data:${file.mimetype};base64,${file.buffer.toString('base64')}`,
+            {
+              folder: `${folderName}/threads`,
+              transformation: [
+                { 
+                  fetch_format: 'auto', 
+                  quality: 'auto:good',
+                  width: 1200,
+                  height: 1200,
+                  crop: 'limit'
+                }
+              ],
+            }
+          );
+          imagesDetails.push({ url: result.secure_url, publicId: result.public_id, originalFilename: file.originalname });
+        }
+      } catch (error) {
+        return res.status(500).json({ message: "Image upload failed: " + error.message });
+      }
     }
   }
   // If no images provided, imagesDetails remains empty array
@@ -256,6 +329,7 @@ export const createThread = asyncHandler(async (req, res) => {
     suburb: suburb,
     communities: parsedCommunities,
     author: parsedAuthor,
+    ...(allowChat !== undefined ? { allowChat } : {}),
     // ✅ Curated thread flag (auto-set when creator's email is in CURATOR_EMAILS)
     isCuratedThread: !!req.user?.email && CURATOR_EMAILS.includes(req.user.email.toLowerCase()),
   });
@@ -274,6 +348,16 @@ export const createThread = asyncHandler(async (req, res) => {
     console.log('📧 Thread creation notification sent');
   } catch (notifyErr) {
     console.warn('⚠️ Thread creation notification failed:', notifyErr.message);
+  }
+
+  // The thread lists (forum landing + home) show the new thread straight away.
+  await refreshFrontendCache(THREADS_LIST_TAG);
+
+  // Pictures uploaded while writing but removed before Create are deleted now.
+  try {
+    await dropUnusedUploads(req.user?._id, parseSessionPictures(req.body.sessionPictures));
+  } catch (err) {
+    console.error('Thread picture clean-up after create failed:', err.message);
   }
 
   res.status(201).json(thread);
@@ -330,9 +414,13 @@ export const getThreads = asyncHandler(async (req, res) => {
           preserveNullAndEmptyArrays: true,
         },
       },
+      // Public list: send ONLY the poster's id and name, never the rest of their account
+      // (email, mobile, role, location, reset/verify codes...). Feature 1012 security fix.
       {
-        $project: {
-          'owner.password': 0, // hide sensitive fields if any
+        $set: {
+          // $mergeObjects makes this an expression, so owner is REPLACED (a plain sub-document
+          // here would be merged into the existing owner and keep every other field).
+          owner: { $mergeObjects: [{ _id: '$owner._id', name: '$owner.name' }] },
         },
       },
     ];
@@ -411,6 +499,13 @@ export const sendMessage = asyncHandler(async (req, res) => {
   const sender = await User.findById(userId).select("name");
   if (!sender) return res.status(404).json({ message: "Sender not found." });
 
+  // Chat switch (feature 1012): no new messages while the author or an admin has chat turned off.
+  const chatThread = await Thread.findById(threadId).select('allowChat');
+  if (!chatThread) return res.status(404).json({ message: "Thread not found." });
+  if (chatThread.allowChat === false) {
+    return res.status(403).json({ message: "Chat is turned off for this thread." });
+  }
+
   const threadMessage = await ThreadMessage.create({
     thread: threadId,
     sender: userId,
@@ -443,8 +538,12 @@ export const sendMessage = asyncHandler(async (req, res) => {
     sender: { _id: sender._id, name: sender.name },
   };
 
-  const io = getIO();
-  io.to(threadId).emit('newThreadMessage', messageWithSender);
+  // Live update is best-effort: the message is already saved, so a socket problem must not fail it.
+  try {
+    getIO().to(threadId).emit('newThreadMessage', messageWithSender);
+  } catch (err) {
+    console.warn('newThreadMessage emit skipped:', err.message);
+  }
 
   res.status(201).json(messageWithSender);
 
@@ -573,6 +672,8 @@ export const updateThread = asyncHandler(async (req, res) => {
   }
 
   let { title, question, category, suburb, communities, author } = req.body;
+  const picturesInText = isTrue(req.body.picturesInText);
+  const allowChat = parseAllowChat(req.body.allowChat);
 
   // Rich-text wall on update: cap the visible text and sanitise before the new description is stored.
   // A legacy plain-text description re-sent unchanged has no tags, so it is returned byte-identical.
@@ -581,6 +682,10 @@ export const updateThread = asyncHandler(async (req, res) => {
       return res.status(400).json({ message: `Description must be ${THREAD_TEXT_LIMIT} characters or less.` });
     }
     question = sanitizeThreadHtml(question);
+  }
+  const textPictures = picturesInText ? extractThreadPictures(question ?? thread.question) : [];
+  if (textPictures.length > THREAD_PICTURE_LIMIT) {
+    return res.status(400).json({ message: `A thread can have up to ${THREAD_PICTURE_LIMIT} pictures.` });
   }
 
   // Parse and validate communities
@@ -621,6 +726,15 @@ export const updateThread = asyncHandler(async (req, res) => {
       return res.status(400).json({ message: 'Invalid JSON format for author data' });
     }
   }
+  // Feature 1012: the new editor makes the author name a must (it is the name shown on the thread).
+  if (picturesInText && (author !== undefined || req.method === 'POST')) {
+    const authorName = (parsedAuthor?.name || '').trim();
+    if (!authorName) return res.status(400).json({ message: 'Please add the author name.' });
+    if (authorName.length > AUTHOR_NAME_MAX) {
+      return res.status(400).json({ message: `Author name must be ${AUTHOR_NAME_MAX} characters or less.` });
+    }
+    parsedAuthor.name = authorName;
+  }
 
   if (typeof suburb === 'string') {
     console.log('📍 Parsing suburb from string...');
@@ -633,128 +747,135 @@ export const updateThread = asyncHandler(async (req, res) => {
     }
   }
 
-  /* -------------------- Parse existingImages -------------------- */
-  let keepImages = [];
-  if (req.body.existingImages) {
-    console.log('📸 Processing existing images...');
-    const existingImagesData = Array.isArray(req.body.existingImages)
-      ? req.body.existingImages
-      : [req.body.existingImages];
+  if (picturesInText) {
+    /* ---- Feature 1012: pictures live in the post; drop the ones no longer in it ---- */
+    const keepIds = new Set(textPictures.map((p) => p.publicId));
+    await destroyThreadPictures(thread.images.filter((img) => !keepIds.has(img.publicId)));
+    thread.images = textPictures;
+  } else {
+    /* -------------------- Parse existingImages -------------------- */
+    let keepImages = [];
+    if (req.body.existingImages) {
+      console.log('📸 Processing existing images...');
+      const existingImagesData = Array.isArray(req.body.existingImages)
+        ? req.body.existingImages
+        : [req.body.existingImages];
 
-    keepImages = existingImagesData.map((item) => JSON.parse(item));
-    console.log('📸 Keeping', keepImages.length, 'existing images');
-  }
-
-  /* -------------------- Delete removed images -------------------- */
-  const removedImages = thread.images.filter(
-    (dbImg) =>
-      !keepImages.some((kImg) => kImg.publicId === dbImg.publicId)
-  );
-
-  if (removedImages.length > 0) {
-    console.log('🗑️ Removing', removedImages.length, 'images from Cloudinary');
-    try {
-      for (const img of removedImages) {
-        await cloudinary.uploader.destroy(img.publicId);
-        console.log('✅ Deleted image:', img.publicId);
-      }
-    } catch (err) {
-      console.log('❌ Image deletion failed:', err.message);
-      return res.status(500).json({
-        success: false,
-        message: "Image deletion failed: " + (err?.message || "Unknown error"),
-      });
+      keepImages = existingImagesData.map((item) => JSON.parse(item));
+      console.log('📸 Keeping', keepImages.length, 'existing images');
     }
-  }
 
-  /* -------------------- Upload new images -------------------- */
-  const folderName = process.env.NODE_ENV === "production" ? "tagtelugu" : "tagtelugudev";
-  
-  // Handle both old array format and new fields format from multer
-  let fileArray = [];
-  if (req.files) {
-    if (Array.isArray(req.files)) {
-      fileArray = req.files;
-    } else if (req.files.images) {
-      // When using .fields(), images are in req.files.images
-      fileArray = req.files.images;
-    }
-  }
-  const validFiles = fileArray.filter(file => file && file.size > 0);
-  let newImages = [];
+    /* -------------------- Delete removed images -------------------- */
+    const removedImages = thread.images.filter(
+      (dbImg) =>
+        !keepImages.some((kImg) => kImg.publicId === dbImg.publicId)
+    );
 
-  // Validate image types and sizes
-  const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-  const maxSize = 10 * 1024 * 1024; // 10MB per image
-  const maxImages = 10; // Maximum number of images allowed
-
-  // Check total image count (existing + new)
-  const totalImages = keepImages.length + validFiles.length;
-  if (totalImages > maxImages) {
-    return res.status(400).json({ 
-      success: false,
-      message: `Maximum ${maxImages} images allowed. You have ${keepImages.length} existing and trying to add ${validFiles.length} new images.` 
-    });
-  }
-
-  // Validate each new image
-  for (let i = 0; i < validFiles.length; i++) {
-    const file = validFiles[i];
-    
-    // Check file type
-    if (!allowedTypes.includes(file.mimetype)) {
-      return res.status(400).json({ 
-        success: false,
-        message: `Image ${i + 1}: Only JPEG, PNG, and WebP formats are allowed`
-      });
-    }
-    
-    // Check file size
-    if (file.size > maxSize) {
-      return res.status(400).json({ 
-        success: false,
-        message: `Image ${i + 1}: File size must be under 10MB`
-      });
-    }
-  }
-
-  if (validFiles.length > 0) {
-    console.log('📤 Uploading', validFiles.length, 'new images...');
-    try {
-      for (const file of validFiles) {
-        const result = await cloudinary.uploader.upload(
-          `data:${file.mimetype};base64,${file.buffer.toString("base64")}`,
-          {
-            folder: `${folderName}/threads`,
-            transformation: [
-              { 
-                fetch_format: "auto", 
-                quality: "auto:good",
-                width: 1200,
-                height: 1200,
-                crop: "limit"
-              }
-            ],
-          }
-        );
-        newImages.push({
-          url: result.secure_url,
-          publicId: result.public_id,
-          originalFilename: file.originalname,
+    if (removedImages.length > 0) {
+      console.log('🗑️ Removing', removedImages.length, 'images from Cloudinary');
+      try {
+        for (const img of removedImages) {
+          await cloudinary.uploader.destroy(img.publicId);
+          console.log('✅ Deleted image:', img.publicId);
+        }
+      } catch (err) {
+        console.log('❌ Image deletion failed:', err.message);
+        return res.status(500).json({
+          success: false,
+          message: "Image deletion failed: " + (err?.message || "Unknown error"),
         });
-        console.log('✅ Uploaded image:', result.public_id);
       }
-    } catch (error) {
-      console.log('❌ Image upload failed:', error.message);
-      return res.status(500).json({
+    }
+
+    /* -------------------- Upload new images -------------------- */
+    const folderName = process.env.NODE_ENV === "production" ? "tagtelugu" : "tagtelugudev";
+  
+    // Handle both old array format and new fields format from multer
+    let fileArray = [];
+    if (req.files) {
+      if (Array.isArray(req.files)) {
+        fileArray = req.files;
+      } else if (req.files.images) {
+        // When using .fields(), images are in req.files.images
+        fileArray = req.files.images;
+      }
+    }
+    const validFiles = fileArray.filter(file => file && file.size > 0);
+    let newImages = [];
+
+    // Validate image types and sizes
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    const maxSize = 10 * 1024 * 1024; // 10MB per image
+    const maxImages = 10; // Maximum number of images allowed
+
+    // Check total image count (existing + new)
+    const totalImages = keepImages.length + validFiles.length;
+    if (totalImages > maxImages) {
+      return res.status(400).json({ 
         success: false,
-        message: "Image upload failed: " + (error?.message || "Unknown error"),
+        message: `Maximum ${maxImages} images allowed. You have ${keepImages.length} existing and trying to add ${validFiles.length} new images.` 
       });
     }
-  }
 
-  /* -------------------- Combine Images -------------------- */
-  thread.images = [...keepImages, ...newImages];
+    // Validate each new image
+    for (let i = 0; i < validFiles.length; i++) {
+      const file = validFiles[i];
+    
+      // Check file type
+      if (!allowedTypes.includes(file.mimetype)) {
+        return res.status(400).json({ 
+          success: false,
+          message: `Image ${i + 1}: Only JPEG, PNG, and WebP formats are allowed`
+        });
+      }
+    
+      // Check file size
+      if (file.size > maxSize) {
+        return res.status(400).json({ 
+          success: false,
+          message: `Image ${i + 1}: File size must be under 10MB`
+        });
+      }
+    }
+
+    if (validFiles.length > 0) {
+      console.log('📤 Uploading', validFiles.length, 'new images...');
+      try {
+        for (const file of validFiles) {
+          const result = await cloudinary.uploader.upload(
+            `data:${file.mimetype};base64,${file.buffer.toString("base64")}`,
+            {
+              folder: `${folderName}/threads`,
+              transformation: [
+                { 
+                  fetch_format: "auto", 
+                  quality: "auto:good",
+                  width: 1200,
+                  height: 1200,
+                  crop: "limit"
+                }
+              ],
+            }
+          );
+          newImages.push({
+            url: result.secure_url,
+            publicId: result.public_id,
+            originalFilename: file.originalname,
+          });
+          console.log('✅ Uploaded image:', result.public_id);
+        }
+      } catch (error) {
+        console.log('❌ Image upload failed:', error.message);
+        return res.status(500).json({
+          success: false,
+          message: "Image upload failed: " + (error?.message || "Unknown error"),
+        });
+      }
+    }
+
+    /* -------------------- Combine Images -------------------- */
+    thread.images = [...keepImages, ...newImages];
+  }
 
   /* -------------------- Update fields -------------------- */
   thread.title = title || thread.title;
@@ -762,6 +883,7 @@ export const updateThread = asyncHandler(async (req, res) => {
   thread.category = category || thread.category;
   thread.communities = communities !== undefined ? parsedCommunities : thread.communities;
   thread.author = author !== undefined ? parsedAuthor : thread.author;
+  if (allowChat !== undefined) thread.allowChat = allowChat;
 
   /* -------------------- Update suburb -------------------- */
   if (suburb) {
@@ -814,7 +936,14 @@ export const updateThread = asyncHandler(async (req, res) => {
   }
 
   // Fresh share previews straight after the edit
-  await refreshFrontendCache(`thread-${updatedThread._id}`);
+  await refreshFrontendCache([`thread-${updatedThread._id}`, THREADS_LIST_TAG]);
+
+  // Pictures uploaded while editing but removed before Update are deleted now.
+  try {
+    await dropUnusedUploads(req.user?._id, parseSessionPictures(req.body.sessionPictures));
+  } catch (err) {
+    console.error('Thread picture clean-up after update failed:', err.message);
+  }
 
   console.log('✅ === UPDATE THREAD COMPLETE ===');
   return res.status(200).json({
@@ -870,6 +999,8 @@ try {
   console.warn('⚠️ Thread delete notification failed:', notifyErr.message);
 }
 
+  // Gone from the lists and the thread page straight away.
+  await refreshFrontendCache([`thread-${threadId}`, THREADS_LIST_TAG]);
 
   res.status(200).json({ message: "Thread, associated messages, and muted thread references deleted successfully" });
 });
@@ -964,7 +1095,7 @@ export const getThreadById = asyncHandler(async (req, res) => {
 // Fetch a single Thread by ID (public endpoint for meta tags)
 export const getThreadByIdPublic = asyncHandler(async (req, res) => {
   const thread = await Thread.findById(req.params.threadId)
-    .select('title question category images createdAt updatedAt author owner isCuratedThread suburb')
+    .select('title question category images createdAt updatedAt author owner isCuratedThread suburb communities allowChat')
     .populate('owner', 'name')
     .lean();
 
@@ -1000,4 +1131,91 @@ export const getSitemapThreads = asyncHandler(async (req, res) => {
     console.error('Error fetching threads for sitemap:', error.message);
     return res.status(500).json({ message: 'Internal Server Error' });
   }
+});
+
+
+// Upload one picture for a thread post (feature 1012). The editor calls this as soon as a picture is
+// picked, then places the returned URL in the post. The browser already shrinks the picture; the
+// server still checks type and size and caps the stored size at 2000px on the longest side.
+const PICTURE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+const PICTURE_MAX_BYTES = 10 * 1024 * 1024;
+
+export const uploadThreadPicture = asyncHandler(async (req, res) => {
+  const files = Array.isArray(req.files) ? req.files : req.files?.images || [];
+  const file = files.find((f) => f && f.size > 0);
+  if (!file) return res.status(400).json({ message: 'Please choose a picture.' });
+  if (files.length > 1) return res.status(400).json({ message: 'Upload one picture at a time.' });
+  if (!PICTURE_TYPES.includes(file.mimetype)) {
+    return res.status(400).json({ message: 'Only JPEG, PNG and WebP pictures are allowed.' });
+  }
+  if (file.size > PICTURE_MAX_BYTES) {
+    return res.status(400).json({ message: 'Each picture must be under 10MB.' });
+  }
+
+  let result;
+  try {
+    result = await new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder: threadPictureFolder(),
+          resource_type: 'image',
+          transformation: [{ width: 2000, height: 2000, crop: 'limit', quality: 'auto:good' }],
+        },
+        (err, out) => (err ? reject(err) : resolve(out))
+      );
+      stream.end(file.buffer);
+    });
+  } catch (err) {
+    console.error('Thread picture upload failed:', err.message);
+    return res.status(502).json({ message: 'Picture upload failed. Please try again.' });
+  }
+
+  // Note the upload so it can be tidied up if no thread ends up using it; then tidy older ones.
+  try {
+    await ThreadPictureUpload.create({ publicId: result.public_id, owner: req.user?._id });
+  } catch (err) {
+    console.error('Thread picture note failed:', err.message);
+  }
+  tidyUnusedThreadPictures().catch((err) => console.error('Thread picture tidy-up failed:', err.message));
+
+  return res.status(201).json({
+    url: result.secure_url,
+    publicId: result.public_id,
+    width: result.width,
+    height: result.height,
+  });
+});
+
+// Feature 1012 rule: a picture stays in Cloudinary only while a saved thread uses it.
+// Given the pictures one editing session uploaded (URLs), delete those this user uploaded that no
+// saved thread uses; notes of pictures now in a saved thread are cleared too (they are kept).
+// Called after Create/Update (removed-before-save pictures) and on Cancel (everything unsaved).
+// Anything missed (tab closed) is caught by the 24-hour tidy-up.
+const parseSessionPictures = (v) => {
+  let list = v;
+  if (typeof v === 'string') {
+    try { list = JSON.parse(v); } catch { list = []; }
+  }
+  return Array.isArray(list) ? list.slice(0, 100) : [];
+};
+
+const dropUnusedUploads = async (userId, urls) => {
+  const ids = [...new Set((urls || []).map(publicIdFromUrl).filter(Boolean))];
+  if (!ids.length || !userId) return 0;
+  const mine = await ThreadPictureUpload.find({ publicId: { $in: ids }, owner: userId }).lean();
+  if (!mine.length) return 0;
+  const used = new Set(
+    (await Thread.find({ 'images.publicId': { $in: mine.map((n) => n.publicId) } }).select('images.publicId').lean())
+      .flatMap((t) => (t.images || []).map((img) => img.publicId))
+  );
+  const drop = mine.filter((n) => !used.has(n.publicId));
+  await destroyThreadPictures(drop);
+  await ThreadPictureUpload.deleteMany({ _id: { $in: mine.map((n) => n._id) } });
+  return drop.length;
+};
+
+// Cancel / leaving an unsaved post: delete that session's unused pictures at once.
+export const discardThreadPictures = asyncHandler(async (req, res) => {
+  const deleted = await dropUnusedUploads(req.user._id, parseSessionPictures(req.body?.urls));
+  return res.status(200).json({ deleted });
 });

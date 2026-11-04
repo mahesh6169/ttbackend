@@ -2,6 +2,7 @@ import express from 'express';
 import * as threadController from '../controllers/threads/threadController.js';
 import authMiddleware from '../middlewares/authMiddleware.js';
 import { multerMiddleware } from '../middlewares/multerConfig.js';
+import { threadPictureLimiter } from '../middlewares/threadPictureRateLimit.js';
 import * as filterThreadController from '../controllers/threads/filterThreadController.js';
 import * as searchThreadsController from '../controllers/threads/searchThreadsController.js';
 const router = express.Router();
@@ -10,6 +11,8 @@ const router = express.Router();
 
 
 router.post('/create', authMiddleware, multerMiddleware, threadController.createThread);
+router.post('/pictures', authMiddleware, threadPictureLimiter, multerMiddleware, threadController.uploadThreadPicture); // one picture for the post editor (feature 1012)
+router.post('/pictures/discard', authMiddleware, threadController.discardThreadPictures); // pictures of a cancelled post (feature 1012)
 router.get('/', threadController.getThreads);
 router.get('/sitemap', threadController.getSitemapThreads);
 //router.get('/categories', threadController.getThreadsByCategory);

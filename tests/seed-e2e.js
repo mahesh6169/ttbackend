@@ -239,6 +239,38 @@ const threadLegacy = await createThread(member, {
   question: 'Legacy line one.\nLegacy line two.',
 });
 
+// Feature 1012 blog-style post: headings, a map link, one picture, a set of 3, in that order, with
+// an author name that replaces the account name. Picture URLs must be in our threads folder: the
+// public thread endpoint re-sanitises on read and drops any other picture. (They need not exist -
+// the page reserves their space from width/height and the specs never depend on the bytes.)
+const BLOG_CLOUD = process.env.CLOUDINARY_CLOUD_NAME || 'dtvrbdvkx';
+const blogImg = (alt) =>
+  `<img src="https://res.cloudinary.com/${BLOG_CLOUD}/image/upload/v1/tagtelugudev/threads/e2e-${alt.toLowerCase().replace(/[^a-z]+/g, '-')}.jpg" alt="${alt}" width="1200" height="630" />`;
+const threadBlog = await createThread(member, {
+  title: 'E2E Blog Thread',
+  category: 'Food & Dining',
+  author: { name: 'Ravi Kumar' },
+  question:
+    '<h2>Stop one</h2><p>Breakfast first.</p>' +
+    `<div data-pictures>${blogImg('Idli plate')}</div>` +
+    '<h3>Getting there</h3>' +
+    '<p>Find <a href="https://maps.app.goo.gl/e2eTestPlace" target="_blank" rel="noopener noreferrer">the place</a> and <a href="https://example.com/menu" target="_blank" rel="noopener noreferrer">our menu</a>.</p>' +
+    `<div data-pictures>${blogImg('Lunch one')}${blogImg('Lunch two')}${blogImg('Lunch three')}</div>` +
+    '<p>Closing words.</p>',
+});
+// Chat switched off by its author (feature 1012).
+const threadChatOff = await createThread(member, {
+  title: 'E2E Chat Off Thread',
+  question: '<p>No replies on this one.</p>',
+  allowChat: false,
+});
+// Only the admin moderation spec touches this one (category + chat switch).
+const threadModerate = await createThread(member, {
+  title: 'E2E Moderate Thread',
+  category: 'Food & Dining',
+  question: '<p>Words only the writer may change.</p>',
+});
+
 // Threads landing SSR pre-fill (featureplans/threads-seo-landing.md): 13 threads so the default
 // first page is a full 12 (AC2) and at least one 'E2E Landing Thread NN' card is on page 1 for the
 // title+link check (AC1). Sequential create => distinct createdAt, so newest-first is stable.
@@ -730,6 +762,9 @@ console.log('SEED_JSON=' + JSON.stringify({
   threadEditId: String(threadEdit._id),
   threadUrlId: String(threadUrl._id),
   threadLegacyId: String(threadLegacy._id),
+  threadBlogId: String(threadBlog._id),
+  threadChatOffId: String(threadChatOff._id),
+  threadModerateId: String(threadModerate._id),
   walkwayEventId: String(walkwayEvent._id),
   walkwayWideEventId: String(walkwayWideEvent._id),
   zoomHallEventId: String(zoomHallEvent._id),

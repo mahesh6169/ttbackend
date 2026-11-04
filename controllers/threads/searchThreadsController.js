@@ -3,6 +3,7 @@
 import asyncHandler from 'express-async-handler';
 import Thread from '../../models/threadModel.js';
 import { sendSuccess, sendValidationError, sendError } from '../../utils/response/responseUtil.js';
+import { threadDisplayNameExpr } from '../../utils/helpers/shared/threadDisplayName.js';
 
 // @desc    Universal filter endpoint for threads
 // @route   GET /api/threads/search
@@ -198,7 +199,7 @@ export const searchThreads = asyncHandler(async (req, res) => {
     
     pipeline.push({
       $addFields: {
-        ownerName: { $arrayElemAt: ['$ownerData.name', 0] }
+        ownerName: threadDisplayNameExpr
       }
     });
     
@@ -334,7 +335,7 @@ export const getRecentActivity = asyncHandler(async (req, res) => {
           lastActivity: 1,
           commentCount: 1,
           owner: 1,
-          ownerName: { $arrayElemAt: ['$ownerData.name', 0] }
+          ownerName: threadDisplayNameExpr
           // Removed exclusions: messages: 0
           // Removed exclusions: 'ownerData': 0
         }

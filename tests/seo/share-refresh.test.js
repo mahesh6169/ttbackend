@@ -70,7 +70,7 @@ test('editing a listing refreshes its page', async () => {
   expect(tags()).toEqual([`listing-${advert._id}`]);
 });
 
-test('editing a thread refreshes its page', async () => {
+test('editing a thread refreshes its page and the thread lists', async () => {
   const owner = await createUser();
   const thread = await createThread(owner);
 
@@ -78,7 +78,23 @@ test('editing a thread refreshes its page', async () => {
     .field('title', 'Renamed Thread')
     .field('question', 'Updated question text.');
   expect(res.status).toBe(200);
-  expect(tags()).toEqual([`thread-${thread._id}`]);
+  expect(tags()).toEqual(['threads-list', `thread-${thread._id}`].sort());
+});
+
+test('creating or deleting a thread refreshes the thread lists (forum landing + home) straight away', async () => {
+  const owner = await createUser();
+  const created = await api('post', '/api/threads/create', owner)
+    .field('title', 'Fresh thread')
+    .field('question', 'Hello')
+    .field('category', 'General')
+    .field('suburb', JSON.stringify({ name: 'Sydney', state: 'NSW', postalCode: '2000', location: { type: 'Point', coordinates: [151.2, -33.8] } }));
+  expect(created.status).toBe(201);
+  expect(tags()).toEqual(['threads-list']);
+
+  calls = [];
+  const del = await api('delete', `/api/threads/thread/${created.body._id}`, owner);
+  expect(del.status).toBe(200);
+  expect(tags()).toEqual(['threads-list', `thread-${created.body._id}`].sort());
 });
 
 test('editing a coupon campaign refreshes its page, and editing its store refreshes every campaign of the store', async () => {

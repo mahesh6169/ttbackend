@@ -15,9 +15,9 @@ export const initializeThreadSocket = (server) => {
       socket.leave(threadId);
     });
 
-    socket.on('sendThreadMessage', ({ threadId, message }) => {
-      io.to(threadId).emit('newThreadMessage', message);
-    });
+    // Feature 1012: the old 'sendThreadMessage' relay was removed. It re-broadcast any message from
+    // any client (no login, not saved, ignores the chat switch). Messages are sent through
+    // POST /api/threads/send, which saves them and emits 'newThreadMessage' itself.
   });
 };
 
