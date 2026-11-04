@@ -353,6 +353,13 @@ export const createThread = asyncHandler(async (req, res) => {
   // The thread lists (forum landing + home) show the new thread straight away.
   await refreshFrontendCache(THREADS_LIST_TAG);
 
+  // Pictures uploaded while writing but removed before Create are deleted now.
+  try {
+    await dropUnusedUploads(req.user?._id, parseSessionPictures(req.body.sessionPictures));
+  } catch (err) {
+    console.error('Thread picture clean-up after create failed:', err.message);
+  }
+
   res.status(201).json(thread);
 });
 
@@ -931,6 +938,13 @@ export const updateThread = asyncHandler(async (req, res) => {
   // Fresh share previews straight after the edit
   await refreshFrontendCache([`thread-${updatedThread._id}`, THREADS_LIST_TAG]);
 
+  // Pictures uploaded while editing but removed before Update are deleted now.
+  try {
+    await dropUnusedUploads(req.user?._id, parseSessionPictures(req.body.sessionPictures));
+  } catch (err) {
+    console.error('Thread picture clean-up after update failed:', err.message);
+  }
+
   console.log('✅ === UPDATE THREAD COMPLETE ===');
   return res.status(200).json({
     message: 'Thread updated successfully',
@@ -1172,22 +1186,36 @@ export const uploadThreadPicture = asyncHandler(async (req, res) => {
   });
 });
 
-// Throw away pictures from a post the writer cancelled (feature 1012). Only pictures this user
-// uploaded from the editor (noted on upload) and that no saved thread uses are deleted, so a
-// picture already in a saved thread (e.g. cancelling an edit) is never touched. Pictures that are
-// not deleted here are still caught by the 24-hour tidy-up.
-export const discardThreadPictures = asyncHandler(async (req, res) => {
-  const urls = Array.isArray(req.body?.urls) ? req.body.urls.slice(0, THREAD_PICTURE_LIMIT * 2) : [];
-  const ids = [...new Set(urls.map(publicIdFromUrl).filter(Boolean))];
-  if (!ids.length) return res.status(200).json({ deleted: 0 });
+// Feature 1012 rule: a picture stays in Cloudinary only while a saved thread uses it.
+// Given the pictures one editing session uploaded (URLs), delete those this user uploaded that no
+// saved thread uses; notes of pictures now in a saved thread are cleared too (they are kept).
+// Called after Create/Update (removed-before-save pictures) and on Cancel (everything unsaved).
+// Anything missed (tab closed) is caught by the 24-hour tidy-up.
+const parseSessionPictures = (v) => {
+  let list = v;
+  if (typeof v === 'string') {
+    try { list = JSON.parse(v); } catch { list = []; }
+  }
+  return Array.isArray(list) ? list.slice(0, 100) : [];
+};
 
-  const mine = await ThreadPictureUpload.find({ publicId: { $in: ids }, owner: req.user._id }).lean();
+const dropUnusedUploads = async (userId, urls) => {
+  const ids = [...new Set((urls || []).map(publicIdFromUrl).filter(Boolean))];
+  if (!ids.length || !userId) return 0;
+  const mine = await ThreadPictureUpload.find({ publicId: { $in: ids }, owner: userId }).lean();
+  if (!mine.length) return 0;
   const used = new Set(
     (await Thread.find({ 'images.publicId': { $in: mine.map((n) => n.publicId) } }).select('images.publicId').lean())
       .flatMap((t) => (t.images || []).map((img) => img.publicId))
   );
   const drop = mine.filter((n) => !used.has(n.publicId));
   await destroyThreadPictures(drop);
-  await ThreadPictureUpload.deleteMany({ _id: { $in: drop.map((n) => n._id) } });
-  return res.status(200).json({ deleted: drop.length });
+  await ThreadPictureUpload.deleteMany({ _id: { $in: mine.map((n) => n._id) } });
+  return drop.length;
+};
+
+// Cancel / leaving an unsaved post: delete that session's unused pictures at once.
+export const discardThreadPictures = asyncHandler(async (req, res) => {
+  const deleted = await dropUnusedUploads(req.user._id, parseSessionPictures(req.body?.urls));
+  return res.status(200).json({ deleted });
 });

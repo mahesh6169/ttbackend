@@ -286,3 +286,29 @@ test('cancelling a post deletes its unsaved pictures at once, but never a pictur
   expect(destroy).toHaveBeenCalledWith('tagtelugudev/threads/draft-only');
   expect(await ThreadPictureUpload.countDocuments({ publicId: 'tagtelugudev/threads/draft-only' })).toBe(0);
 });
+
+test('a picture uploaded while writing but removed before Create or Update is deleted when saving', async () => {
+  const destroy = jest.spyOn(cloudinary.uploader, 'destroy').mockResolvedValue({ result: 'ok' });
+  const user = await createUser();
+  await ThreadPictureUpload.create([
+    { publicId: 'tagtelugudev/threads/kept', owner: user._id },
+    { publicId: 'tagtelugudev/threads/removed', owner: user._id },
+  ]);
+  const created = await postBlogThread(user, `<p>a</p>${block('kept')}`)
+    .field('sessionPictures', JSON.stringify([pic('kept'), pic('removed')]));
+  expect(created.status).toBe(201);
+  expect(destroy).toHaveBeenCalledTimes(1);
+  expect(destroy).toHaveBeenCalledWith('tagtelugudev/threads/removed');
+  expect(await ThreadPictureUpload.countDocuments()).toBe(0); // kept one is now in a saved thread
+
+  destroy.mockClear();
+  await ThreadPictureUpload.create({ publicId: 'tagtelugudev/threads/edit-removed', owner: user._id });
+  const updated = await updateThread(user, created.body._id, {
+    question: `<p>a</p>${block('kept')}`, picturesInText: 'true',
+    author: JSON.stringify({ name: 'Ravi Kumar' }),
+    sessionPictures: JSON.stringify([pic('edit-removed')]),
+  });
+  expect(updated.status).toBe(200);
+  expect(destroy).toHaveBeenCalledWith('tagtelugudev/threads/edit-removed');
+  expect(destroy).not.toHaveBeenCalledWith('tagtelugudev/threads/kept');
+});
