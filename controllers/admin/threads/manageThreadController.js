@@ -5,7 +5,7 @@ import User from '../../../models/userModel.js';
 import { deleteThreadNotification } from '../../../utils/notifications/threads/sendThreadNotifications.js';
 import cloudinary from '../../../utils/cloudinary.js';
 import { THREAD_CATEGORIES } from '../../../utils/constants/threadCategories.js';
-import { refreshFrontendCache } from '../../../utils/refreshFrontendCache.js';
+import { refreshFrontendCache, THREADS_LIST_TAG } from '../../../utils/refreshFrontendCache.js';
 
 // @desc    Get all threads for moderation with pagination
 // @route   GET /api/admin/threads/manage
@@ -113,6 +113,7 @@ export const deleteThreadById = asyncHandler(async (req, res) => {
 
     // Delete the thread
     await Thread.deleteOne({ _id: threadId });
+    await refreshFrontendCache([`thread-${threadId}`, THREADS_LIST_TAG]);
 
     return res.status(200).json({
       success: true,
@@ -158,6 +159,6 @@ export const moderateThread = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'Thread not found' });
   }
 
-  await refreshFrontendCache(`thread-${thread._id}`);
+  await refreshFrontendCache([`thread-${thread._id}`, THREADS_LIST_TAG]);
   return res.status(200).json({ success: true, thread });
 });

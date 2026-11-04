@@ -2,9 +2,12 @@ import axios from 'axios';
 
 // Asks the frontend to drop its cached copy of a page (Next.js revalidateTag), so a link shared
 // right after an edit shows the new title/image in WhatsApp/Facebook previews.
-// Tags: event-<id>, listing-<id>, thread-<id>, deal-<id>, campaign-<slug> (see the frontend's
-// app/api/revalidate/route.js). Awaited by callers so the cache is fresh before the save reply,
+// Tags: event-<id>, listing-<id>, thread-<id>, deal-<id>, campaign-<slug>, threads-list (see the
+// frontend's app/api/revalidate/route.js). Awaited by callers so the cache is fresh before the save reply,
 // but it never throws: a failed refresh only means the page updates when its cache expires.
+// The forum landing's first page and the home page's latest threads (feature 1012).
+export const THREADS_LIST_TAG = 'threads-list';
+
 export const refreshFrontendCache = async (tags) => {
   const secret = process.env.REVALIDATION_SECRET;
   // FRONTEND_URL is the comma-separated CORS list (app.js) - its first entry is the site itself.

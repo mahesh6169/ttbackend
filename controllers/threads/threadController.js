@@ -19,7 +19,7 @@ import {
   extractThreadPictures,
   threadPictureFolder,
 } from '../../utils/helpers/shared/threadPictures.js';
-import { refreshFrontendCache } from '../../utils/refreshFrontendCache.js';
+import { refreshFrontendCache, THREADS_LIST_TAG } from '../../utils/refreshFrontendCache.js';
 import { AUTHOR_NAME_MAX } from '../../utils/helpers/shared/threadDisplayName.js';
 
 // Shared cap: the visible text of a thread description may not exceed this (HTML wrapping excluded).
@@ -348,6 +348,9 @@ export const createThread = asyncHandler(async (req, res) => {
   } catch (notifyErr) {
     console.warn('⚠️ Thread creation notification failed:', notifyErr.message);
   }
+
+  // The thread lists (forum landing + home) show the new thread straight away.
+  await refreshFrontendCache(THREADS_LIST_TAG);
 
   res.status(201).json(thread);
 });
@@ -925,7 +928,7 @@ export const updateThread = asyncHandler(async (req, res) => {
   }
 
   // Fresh share previews straight after the edit
-  await refreshFrontendCache(`thread-${updatedThread._id}`);
+  await refreshFrontendCache([`thread-${updatedThread._id}`, THREADS_LIST_TAG]);
 
   console.log('✅ === UPDATE THREAD COMPLETE ===');
   return res.status(200).json({
@@ -981,6 +984,8 @@ try {
   console.warn('⚠️ Thread delete notification failed:', notifyErr.message);
 }
 
+  // Gone from the lists and the thread page straight away.
+  await refreshFrontendCache([`thread-${threadId}`, THREADS_LIST_TAG]);
 
   res.status(200).json({ message: "Thread, associated messages, and muted thread references deleted successfully" });
 });
