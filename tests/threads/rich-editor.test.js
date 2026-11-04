@@ -25,7 +25,8 @@ const postThread = (user, question) =>
     .field('suburb', JSON.stringify(SUBURB));
 
 // Feature 1012: the new editor marks that pictures live in the post text.
-const postBlogThread = (user, question) => postThread(user, question).field('picturesInText', 'true');
+const postBlogThread = (user, question, authorName = 'Ravi Kumar') =>
+  postThread(user, question).field('picturesInText', 'true').field('author', JSON.stringify({ name: authorName }));
 
 // A picture URL exactly like the thread picture upload returns (tests run with NODE_ENV=test,
 // so the folder is tagtelugudev/threads).
@@ -241,4 +242,23 @@ test('pictures uploaded but never used in a saved thread are deleted after 24 ho
   expect(destroy).toHaveBeenCalledWith('tagtelugudev/threads/abandoned');
   // The old notes are gone; the recent one waits for its 24 hours.
   expect((await ThreadPictureUpload.find().lean()).map((n) => n.publicId)).toEqual(['tagtelugudev/threads/still-writing']);
+});
+
+test('the new editor needs an author name, and lists show the author name instead of the account name', async () => {
+  const user = await createUser({ name: 'Account Name' });
+  const missing = await postBlogThread(user, '<p>hi</p>', '   ');
+  expect(missing.status).toBe(400);
+  expect(missing.body.message).toMatch(/author name/i);
+
+  const ok = await postBlogThread(user, '<p>hi</p>', '  Ravi Kumar  ');
+  expect(ok.status).toBe(201);
+  expect((await Thread.findById(ok.body._id).lean()).author.name).toBe('Ravi Kumar');
+
+  // Editing with the author name emptied is refused too.
+  const emptied = await updateThread(user, ok.body._id, { picturesInText: 'true', author: JSON.stringify({ name: '' }) });
+  expect(emptied.status).toBe(400);
+
+  const home = await api('get', '/api/home/threads');
+  const row = (home.body.data?.threads || home.body.threads || []).find((t) => String(t._id) === String(ok.body._id));
+  expect(row.author).toBe('Ravi Kumar');
 });

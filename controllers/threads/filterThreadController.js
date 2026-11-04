@@ -1,5 +1,6 @@
 import asyncHandler from 'express-async-handler';
 import Thread from '../../models/threadModel.js';
+import { threadDisplayNameExpr } from '../../utils/helpers/shared/threadDisplayName.js';
 
 // Helper function for pagination parameters - extracted from filterController.js pattern
 const getPagination = (page = 1, limit = 10) => {
@@ -66,7 +67,7 @@ export const getThreadsAll = asyncHandler(async (req, res) => {
       $addFields: {
         commentCount: { $size: '$messages' },
         commented: { $gt: [{ $size: '$messages' }, 0] },
-        ownerName: { $arrayElemAt: ['$ownerData.name', 0] }
+        ownerName: threadDisplayNameExpr
       },
     },
     {
@@ -151,7 +152,7 @@ export const getThreadsByCategory = asyncHandler(async (req, res) => {
       $addFields: {
         commentCount: { $size: '$messages' },
         commented: { $gt: [{ $size: '$messages' }, 0] },
-        ownerName: { $arrayElemAt: ['$ownerData.name', 0] }
+        ownerName: threadDisplayNameExpr
       },
     },
     {
@@ -229,7 +230,7 @@ export const getThreadsByCity = asyncHandler(async (req, res) => {
         $addFields: {
           commentCount: { $size: '$messages' },
           commented: { $gt: [{ $size: '$messages' }, 0] },
-          ownerName: { $arrayElemAt: ['$ownerData.name', 0] }
+          ownerName: threadDisplayNameExpr
         },
       },
       {
@@ -382,7 +383,7 @@ export const getThreadsCustomCategory = asyncHandler(async (req, res) => {
       $addFields: {
         commentCount: { $size: '$messages' },
         commented: { $gt: [{ $size: '$messages' }, 0] },
-        ownerName: { $arrayElemAt: ['$ownerData.name', 0] }
+        ownerName: threadDisplayNameExpr
       },
     },
     {

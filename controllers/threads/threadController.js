@@ -20,6 +20,7 @@ import {
   threadPictureFolder,
 } from '../../utils/helpers/shared/threadPictures.js';
 import { refreshFrontendCache } from '../../utils/refreshFrontendCache.js';
+import { AUTHOR_NAME_MAX } from '../../utils/helpers/shared/threadDisplayName.js';
 
 // Shared cap: the visible text of a thread description may not exceed this (HTML wrapping excluded).
 const THREAD_TEXT_LIMIT = 15000;
@@ -192,6 +193,15 @@ export const createThread = asyncHandler(async (req, res) => {
     } catch (error) {
       return res.status(400).json({ message: 'Invalid JSON format for author data' });
     }
+  }
+  // Feature 1012: the new editor makes the author name a must (it is the name shown on the thread).
+  if (picturesInText && (author !== undefined || req.method === 'POST')) {
+    const authorName = (parsedAuthor?.name || '').trim();
+    if (!authorName) return res.status(400).json({ message: 'Please add the author name.' });
+    if (authorName.length > AUTHOR_NAME_MAX) {
+      return res.status(400).json({ message: `Author name must be ${AUTHOR_NAME_MAX} characters or less.` });
+    }
+    parsedAuthor.name = authorName;
   }
 
   // ✅ Parse suburb if sent as string
@@ -704,6 +714,15 @@ export const updateThread = asyncHandler(async (req, res) => {
     } catch (error) {
       return res.status(400).json({ message: 'Invalid JSON format for author data' });
     }
+  }
+  // Feature 1012: the new editor makes the author name a must (it is the name shown on the thread).
+  if (picturesInText && (author !== undefined || req.method === 'POST')) {
+    const authorName = (parsedAuthor?.name || '').trim();
+    if (!authorName) return res.status(400).json({ message: 'Please add the author name.' });
+    if (authorName.length > AUTHOR_NAME_MAX) {
+      return res.status(400).json({ message: `Author name must be ${AUTHOR_NAME_MAX} characters or less.` });
+    }
+    parsedAuthor.name = authorName;
   }
 
   if (typeof suburb === 'string') {

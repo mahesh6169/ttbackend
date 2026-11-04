@@ -3,6 +3,7 @@ import Advert from '../models/advertModel.js';
 import Event from '../models/eventModel.js';
 import Thread from '../models/threadModel.js';
 import { sendSuccess, sendError } from '../utils/response/responseUtil.js';
+import { threadDisplayName } from '../utils/helpers/shared/threadDisplayName.js';
 
 export const getHomeListings = asyncHandler(async (req, res) => {
   console.log('🏠 Fetching home listings');
@@ -113,7 +114,7 @@ export const getHomeThreads = asyncHandler(async (req, res) => {
   
   try {
     const threads = await Thread.find({})
-    .select('title slug owner createdAt')
+    .select('title slug owner author isCuratedThread createdAt')
     .populate('owner', 'name')
     .sort({ createdAt: -1 })
     .limit(9)
@@ -122,7 +123,7 @@ export const getHomeThreads = asyncHandler(async (req, res) => {
     const transformed = threads.map(item => ({
       _id: item._id,
       title: item.title,
-      author: item.owner?.name || 'Anonymous',
+      author: threadDisplayName(item) || 'Anonymous',
       createdAt: item.createdAt,
       slug: item.slug || item._id
     }));

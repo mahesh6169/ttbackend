@@ -8,6 +8,9 @@ import Event from '../../models/eventModel.js';
 import { CURRENT_TERMS_VERSION } from '../../constants/terms.js';
 import { sendWelcomeEmail, sendVerifyOtpEmail, sendResetOtpEmail, sendAccountDeletionEmail } from '../../utils/notifications/users/newUserNotifications.js';
 import { verifyRecaptcha } from '../../utils/verifyRecaptcha.js';
+
+const CURATOR_EMAILS = (process.env.CURATOR_EMAILS || '')
+  .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
 import * as deleteUserCascade from '../../utils/helpers/users/deleteUserCascade.js';
 
 
@@ -313,6 +316,8 @@ export const validateToken = asyncHandler(async (req, res) => {
                 freeHost: user.freeHost || false,
                 paidHost: user.paidHost || false,
                 promoHost: user.promoHost || false,
+                // Feature 1012: curator accounts start their thread author name as "Desify Team".
+                isCurator: CURATOR_EMAILS.includes((user.email || '').toLowerCase()),
             },
         });
     } catch (err) {
