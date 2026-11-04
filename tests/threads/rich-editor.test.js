@@ -4,6 +4,8 @@
 // cap applies to visible TEXT, not the HTML wrapping.
 import { jest } from '@jest/globals';
 import Thread from '../../models/threadModel.js';
+import ThreadPictureUpload from '../../models/threadPictureUploadModel.js';
+import { tidyUnusedThreadPictures } from '../../controllers/threads/threadController.js';
 import cloudinary from '../../utils/cloudinary.js';
 import { createUser, createThread } from '../helpers/factories.js';
 import { api } from '../helpers/eventRequests.js';
@@ -217,4 +219,26 @@ test('picture upload: needs a login, accepts JPEG/PNG/WebP only, and returns the
   const opts = uploadStream.mock.calls[0][0];
   expect(opts.folder).toBe('tagtelugudev/threads');
   expect(opts.transformation[0]).toMatchObject({ width: 2000, height: 2000, crop: 'limit' });
+  // The upload is noted for the unused-picture tidy-up.
+  expect(await ThreadPictureUpload.countDocuments({ publicId: 'tagtelugudev/threads/fresh' })).toBe(1);
+});
+
+test('pictures uploaded but never used in a saved thread are deleted after 24 hours; used and recent ones stay', async () => {
+  const destroy = jest.spyOn(cloudinary.uploader, 'destroy').mockResolvedValue({ result: 'ok' });
+  const user = await createUser();
+  const created = await postBlogThread(user, `<p>a</p>${block('used')}`);
+  expect(created.status).toBe(201);
+  const dayAgo = new Date(Date.now() - 25 * 60 * 60 * 1000);
+  await ThreadPictureUpload.collection.insertMany([
+    { publicId: 'tagtelugudev/threads/used', createdAt: dayAgo, updatedAt: dayAgo },
+    { publicId: 'tagtelugudev/threads/abandoned', createdAt: dayAgo, updatedAt: dayAgo },
+    { publicId: 'tagtelugudev/threads/still-writing', createdAt: new Date(), updatedAt: new Date() },
+  ]);
+
+  const out = await tidyUnusedThreadPictures();
+  expect(out).toEqual({ checked: 2, deleted: 1 });
+  expect(destroy).toHaveBeenCalledTimes(1);
+  expect(destroy).toHaveBeenCalledWith('tagtelugudev/threads/abandoned');
+  // The old notes are gone; the recent one waits for its 24 hours.
+  expect((await ThreadPictureUpload.find().lean()).map((n) => n.publicId)).toEqual(['tagtelugudev/threads/still-writing']);
 });

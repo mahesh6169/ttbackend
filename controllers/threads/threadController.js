@@ -1,6 +1,7 @@
 import asyncHandler from 'express-async-handler';
 import Thread from '../../models/threadModel.js';
 import ThreadMessage from '../../models/threadMessageModel.js';
+import ThreadPictureUpload from '../../models/threadPictureUploadModel.js';
 import User from '../../models/userModel.js';
 import { getIO } from '../../socket/index.js';
 import cloudinary from '../../utils/cloudinary.js';
@@ -50,6 +51,27 @@ const destroyThreadPictures = async (images) => {
       console.error(`Thread picture delete failed for ${img.publicId}:`, err.message);
     }
   }
+};
+
+// Tidy-up of pictures uploaded from the editor but never used in a saved thread (Cancel, closed page,
+// never pressed Create). Runs in the background on each picture upload, so no scheduled job is
+// needed. A picture older than 24 hours is deleted unless a thread uses it; either way its note goes.
+const UNUSED_PICTURE_AGE_MS = 24 * 60 * 60 * 1000;
+export const tidyUnusedThreadPictures = async ({ now = Date.now(), batch = 50 } = {}) => {
+  const old = await ThreadPictureUpload.find({ createdAt: { $lt: new Date(now - UNUSED_PICTURE_AGE_MS) } })
+    .sort({ createdAt: 1 })
+    .limit(batch)
+    .lean();
+  if (!old.length) return { checked: 0, deleted: 0 };
+  const ids = old.map((n) => n.publicId);
+  const used = new Set(
+    (await Thread.find({ 'images.publicId': { $in: ids } }).select('images.publicId').lean())
+      .flatMap((t) => (t.images || []).map((img) => img.publicId))
+  );
+  const unused = old.filter((n) => !used.has(n.publicId)).map((n) => ({ publicId: n.publicId }));
+  await destroyThreadPictures(unused);
+  await ThreadPictureUpload.deleteMany({ _id: { $in: old.map((n) => n._id) } });
+  return { checked: old.length, deleted: unused.length };
 };
 
 // Helper function to generate optimized image URLs
@@ -1108,6 +1130,14 @@ export const uploadThreadPicture = asyncHandler(async (req, res) => {
     console.error('Thread picture upload failed:', err.message);
     return res.status(502).json({ message: 'Picture upload failed. Please try again.' });
   }
+
+  // Note the upload so it can be tidied up if no thread ends up using it; then tidy older ones.
+  try {
+    await ThreadPictureUpload.create({ publicId: result.public_id, owner: req.user?._id });
+  } catch (err) {
+    console.error('Thread picture note failed:', err.message);
+  }
+  tidyUnusedThreadPictures().catch((err) => console.error('Thread picture tidy-up failed:', err.message));
 
   return res.status(201).json({
     url: result.secure_url,
