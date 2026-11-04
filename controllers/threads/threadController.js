@@ -18,6 +18,7 @@ import {
   THREAD_PICTURE_LIMIT,
   extractThreadPictures,
   threadPictureFolder,
+  publicIdFromUrl,
 } from '../../utils/helpers/shared/threadPictures.js';
 import { refreshFrontendCache, THREADS_LIST_TAG } from '../../utils/refreshFrontendCache.js';
 import { AUTHOR_NAME_MAX } from '../../utils/helpers/shared/threadDisplayName.js';
@@ -1169,4 +1170,24 @@ export const uploadThreadPicture = asyncHandler(async (req, res) => {
     width: result.width,
     height: result.height,
   });
+});
+
+// Throw away pictures from a post the writer cancelled (feature 1012). Only pictures this user
+// uploaded from the editor (noted on upload) and that no saved thread uses are deleted, so a
+// picture already in a saved thread (e.g. cancelling an edit) is never touched. Pictures that are
+// not deleted here are still caught by the 24-hour tidy-up.
+export const discardThreadPictures = asyncHandler(async (req, res) => {
+  const urls = Array.isArray(req.body?.urls) ? req.body.urls.slice(0, THREAD_PICTURE_LIMIT * 2) : [];
+  const ids = [...new Set(urls.map(publicIdFromUrl).filter(Boolean))];
+  if (!ids.length) return res.status(200).json({ deleted: 0 });
+
+  const mine = await ThreadPictureUpload.find({ publicId: { $in: ids }, owner: req.user._id }).lean();
+  const used = new Set(
+    (await Thread.find({ 'images.publicId': { $in: mine.map((n) => n.publicId) } }).select('images.publicId').lean())
+      .flatMap((t) => (t.images || []).map((img) => img.publicId))
+  );
+  const drop = mine.filter((n) => !used.has(n.publicId));
+  await destroyThreadPictures(drop);
+  await ThreadPictureUpload.deleteMany({ _id: { $in: drop.map((n) => n._id) } });
+  return res.status(200).json({ deleted: drop.length });
 });

@@ -262,3 +262,27 @@ test('the new editor needs an author name, and lists show the author name instea
   const row = (home.body.data?.threads || home.body.threads || []).find((t) => String(t._id) === String(ok.body._id));
   expect(row.author).toBe('Ravi Kumar');
 });
+
+test('cancelling a post deletes its unsaved pictures at once, but never a picture in a saved thread or someone else\'s', async () => {
+  const destroy = jest.spyOn(cloudinary.uploader, 'destroy').mockResolvedValue({ result: 'ok' });
+  const user = await createUser();
+  const other = await createUser();
+  const saved = await postBlogThread(user, `<p>a</p>${block('in-saved')}`);
+  expect(saved.status).toBe(201);
+  await ThreadPictureUpload.create([
+    { publicId: 'tagtelugudev/threads/draft-only', owner: user._id },
+    { publicId: 'tagtelugudev/threads/in-saved', owner: user._id },
+    { publicId: 'tagtelugudev/threads/not-mine', owner: other._id },
+  ]);
+
+  const anon = await api('post', '/api/threads/pictures/discard').send({ urls: [pic('draft-only')] });
+  expect(anon.status).toBe(401);
+
+  const res = await api('post', '/api/threads/pictures/discard', user)
+    .send({ urls: [pic('draft-only'), pic('in-saved'), pic('not-mine'), 'https://example.com/x.jpg'] });
+  expect(res.status).toBe(200);
+  expect(res.body.deleted).toBe(1);
+  expect(destroy).toHaveBeenCalledTimes(1);
+  expect(destroy).toHaveBeenCalledWith('tagtelugudev/threads/draft-only');
+  expect(await ThreadPictureUpload.countDocuments({ publicId: 'tagtelugudev/threads/draft-only' })).toBe(0);
+});
