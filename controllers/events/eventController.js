@@ -54,6 +54,7 @@ import Reservation from '../../models/reservationModel.js';
 import { hasBookedSeat, hasLiveHold, isStructuralLayoutChange, bookedSeats, assertBookedSeatsPreserved } from '../../utils/events/seatConfigLock.js';
 import { reconcileTicketTypeLocks, assertDiscountLocks, assertQuestionLocks, assertEventTypeUnchanged, assertCapacityFloor } from '../../utils/events/editLocks.js';
 import { finalizeRegistrationFields } from '../../utils/events/registrationFieldValidation.js';
+import { eventsSitemapFilter } from '../../utils/seo/sitemapFilters.js';
 
 const CURATOR_EMAILS = (process.env.CURATOR_EMAILS || '')
   .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
@@ -1488,12 +1489,9 @@ export const getEventCapacity = asyncHandler(async (req, res) => {
 
 export const getSitemapEvents = asyncHandler(async (req, res) => {
   try {
-    // Return only future events
+    // Upcoming, not blocked, switched on, not cancelled - rule in utils/seo/sitemapFilters.js.
     // Slug is generated dynamically by frontend using title + _id
-    const events = await Event.find({
-      dateTime: { $gte: new Date() },
-      isBlocked: { $ne: true }, // a blocked event is not listed anywhere (events-delete-retention.md D5)
-    })
+    const events = await Event.find(eventsSitemapFilter())
       .select('title _id updatedAt')
       .sort({ updatedAt: -1 })
       .limit(50000)

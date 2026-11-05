@@ -26,6 +26,7 @@ import homeRoutes from './routes/homeRoutes.js';
 import partnerStoreRoutes from './routes/dailydeals/partnerStoreRoutes.js';
 import dailyDealRoutes from './routes/dailydeals/dailyDealRoutes.js';
 import platformSettingRoutes from './routes/platformSettingRoutes.js';
+import seoRoutes from './routes/seoRoutes.js';
 
 import { stripeWebhook } from './controllers/stripe/stripeController.js';
 import { apiKeyAuth } from './middlewares/apiKeyAuth.js';
@@ -81,6 +82,7 @@ app.use('/api', partnerStoreRoutes);
 app.use('/api', dailyDealRoutes);
 app.use('/api/home', homeRoutes);
 app.use('/api/settings', platformSettingRoutes);
+app.use('/api/sitemap', seoRoutes);
 
 // ✅ Global Error Handler
 app.use((err, req, res, next) => {
