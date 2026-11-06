@@ -22,6 +22,7 @@ import {
 } from '../../utils/helpers/shared/threadPictures.js';
 import { refreshFrontendCache, THREADS_LIST_TAG } from '../../utils/refreshFrontendCache.js';
 import { AUTHOR_NAME_MAX } from '../../utils/helpers/shared/threadDisplayName.js';
+import { threadsSitemapFilter } from '../../utils/seo/sitemapFilters.js';
 
 // Shared cap: the visible text of a thread description may not exceed this (HTML wrapping excluded).
 const THREAD_TEXT_LIMIT = 15000;
@@ -1120,7 +1121,7 @@ export const getThreadByIdPublic = asyncHandler(async (req, res) => {
 // Slug is generated dynamically by frontend using title + _id
 export const getSitemapThreads = asyncHandler(async (req, res) => {
   try {
-    const threads = await Thread.find({})
+    const threads = await Thread.find(threadsSitemapFilter())
       .select('title _id updatedAt')
       .sort({ updatedAt: -1 })
       .limit(50000)

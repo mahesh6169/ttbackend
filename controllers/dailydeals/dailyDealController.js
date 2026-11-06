@@ -7,6 +7,7 @@ import { stripHtml } from '../../utils/helpers/shared/sanitize.js';
 import { addDealNotification, updateDealNotification, deleteDealNotification } from '../../utils/notifications/dailydeals/sendDealNotifications.js';
 import { getCategories } from '../../utils/dailydeals/categoryMappings.js';
 import { refreshFrontendCache } from '../../utils/refreshFrontendCache.js';
+import { dealsSitemapFilter } from '../../utils/seo/sitemapFilters.js';
 
 const CURATOR_EMAILS = (process.env.CURATOR_EMAILS || '')
   .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
@@ -350,16 +351,7 @@ export const getFilterOptions = asyncHandler(async (req, res) => {
 // from dealTitle so the frontend can build /deals/{title}-{id} with createSlugUrl.
 export const getSitemapDeals = asyncHandler(async (req, res) => {
   try {
-    const now = new Date();
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-
-    const deals = await DailyDeal.find({
-      isActive: true,
-      isOnline: { $ne: false },
-      startDate: { $lte: now },
-      endDate: { $gte: startOfToday }
-    })
+    const deals = await DailyDeal.find(dealsSitemapFilter())
       .select('dealTitle _id updatedAt')
       .sort({ updatedAt: -1 })
       .limit(50000)

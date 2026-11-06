@@ -19,6 +19,7 @@ import { COMMUNITY_VALUES } from '../../utils/constants/communities.js';
 import { getCategoryExpiryDays } from '../../utils/constants/expiryConfig.js';
 import { generateSlug, ensureUniqueSlug } from '../../utils/helpers/shared/generateSlug.js';
 import { refreshFrontendCache } from '../../utils/refreshFrontendCache.js';
+import { listingsSitemapFilter } from '../../utils/seo/sitemapFilters.js';
 
 const CURATOR_EMAILS = (process.env.CURATOR_EMAILS || '')
   .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
@@ -837,9 +838,9 @@ export const fetchMyAdverts = asyncHandler(async (req, res) => {
 
 export const getSitemapAdverts = asyncHandler(async (req, res) => {
   try {
-    // Return all adverts regardless of isActive status
+    // Live adverts only (switched on, not expired) - rule in utils/seo/sitemapFilters.js.
     // Frontend slug is generated dynamically using title + _id
-    const adverts = await Advert.find({})
+    const adverts = await Advert.find(listingsSitemapFilter())
       .select('title _id updatedAt')
       .sort({ updatedAt: -1 })
       .limit(50000)

@@ -5,6 +5,7 @@ import CouponCode from '../../models/coupons/couponCode.js';
 import { campaignCreatedNotification, campaignUpdatedNotification, campaignRemovedNotification } from '../../utils/notifications/coupons/sendCouponNotifications.js';
 import { generateSlug, ensureUniqueSlug } from '../../utils/helpers/shared/generateSlug.js';
 import { refreshFrontendCache } from '../../utils/refreshFrontendCache.js';
+import { couponsSitemapFilter } from '../../utils/seo/sitemapFilters.js';
 
 // Accept an array directly (JSON body) or a JSON string (multipart), else fall back.
 const parseArray = (value, fallback = []) => {
@@ -528,11 +529,7 @@ export const deleteCampaign = asyncHandler(async (req, res) => {
 // @access  Public
 export const getSitemapCampaigns = asyncHandler(async (req, res) => {
   try {
-    const campaigns = await Campaign.find({
-      isActive: true,
-      isHidden: false,
-      expiryDate: { $gte: new Date() }
-    })
+    const campaigns = await Campaign.find(couponsSitemapFilter())
       .select('slug _id updatedAt')
       .sort({ updatedAt: -1 })
       .limit(50000)
