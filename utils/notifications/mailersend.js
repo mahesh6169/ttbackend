@@ -30,6 +30,11 @@ export const sendEmailWithMailerSend = async (options, { fetchImpl = fetch } = {
     }
   };
 
+  // Reply button goes to this address (support emails, feature 1014)
+  if (options.replyTo) {
+    emailData.reply_to = { email: options.replyTo };
+  }
+
   // Add attachments if provided
   if (options.attachments && options.attachments.length > 0) {
     emailData.attachments = options.attachments;

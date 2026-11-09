@@ -50,6 +50,7 @@ export const send = async (options, { fetchImpl = fetch, env = process.env } = {
     HTMLPart: options.html,
     TextPart: options.text || stripHtml(options.html),
   };
+  if (options.replyTo) message.ReplyTo = { Email: options.replyTo };
   if (inlinedAttachments.length) message.InlinedAttachments = inlinedAttachments;
   if (attachments.length) message.Attachments = attachments;
 

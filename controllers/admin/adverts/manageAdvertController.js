@@ -6,6 +6,7 @@ import cloudinary from '../../../utils/cloudinary.js'; // Import Cloudinary conf
 import { sendAdvertReminder14, sendAdvertReminder7 } from '../../../utils/notifications/adverts/sendAdvertReminders.js';
 import { addAdvertNotification, updateAdvertNotification, deleteAdvertNotification, renewAdvertNotification } from '../../../utils/notifications/adverts/sendAdvertNotifications.js';
 import { getCategoryExpiryDays } from '../../../utils/constants/expiryConfig.js';
+import { refreshFrontendCache, LISTINGS_LIST_TAG } from '../../../utils/refreshFrontendCache.js';
 
 // @desc    Get all adverts (optional: with pagination).
 // @route   GET /api/admin/adverts
@@ -129,6 +130,9 @@ export const deleteAdvert = asyncHandler(async (req, res) => {
       console.warn("⚠️ Email deletion notification failed:", notifyErr.message);
       // Continue with success response even if notification fails
     }
+
+    // Gone from /listings, the home page and its own page straight away
+    await refreshFrontendCache([`listing-${advertId}`, LISTINGS_LIST_TAG]);
 
     return res.status(200).json({ 
       success: true, 
@@ -309,6 +313,9 @@ export const adminRenewAdvert = asyncHandler(async (req, res) => {
     } catch (notifyErr) {
       console.warn('⚠️ Renewal email notification failed:', notifyErr.message);
     }
+
+    // Back on /listings, the home page and its own page straight away
+    await refreshFrontendCache([`listing-${advert._id}`, LISTINGS_LIST_TAG]);
 
     return res.status(200).json({
       success: true,

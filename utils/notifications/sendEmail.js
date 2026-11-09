@@ -52,12 +52,13 @@ export const routeEmail = async (options, { env = process.env, providers = defau
 
 /**
  * Send email through the provider router (or capture in test mode).
- * @param {Object} options - { to, subject, html, text?, from?, attachments?, category? }
+ * @param {Object} options - { to, subject, html, text?, from?, replyTo?, attachments?, category? }
+ *   replyTo: optional single email address for the Reply button (support emails, feature 1014)
  */
 export const sendEmail = async (options) => {
   // Test mode: capture instead of send. Nothing leaves the process. This branch stays FIRST.
   if (process.env.NODE_ENV === 'test') {
-    capturedEmails.push({ to: options.to, subject: options.subject, html: options.html, category: options.category });
+    capturedEmails.push({ to: options.to, subject: options.subject, html: options.html, category: options.category, replyTo: options.replyTo });
     return { captured: true };
   }
   return routeEmail(options);
