@@ -5,7 +5,7 @@ import User from '../../../models/userModel.js';
 import { generateSlug, ensureUniqueSlug } from '../../../utils/helpers/shared/generateSlug.js';
 import { uploadDealImages, deleteDealImages, updateDealImages } from '../../../utils/dailydeals/dealImageHelpers.js';
 import { stripHtml } from '../../../utils/helpers/shared/sanitize.js';
-import { refreshFrontendCache } from '../../../utils/refreshFrontendCache.js';
+import { refreshFrontendCache, DEALS_LIST_TAG } from '../../../utils/refreshFrontendCache.js';
 
 const CURATOR_EMAILS = (process.env.CURATOR_EMAILS || '')
   .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
@@ -113,6 +113,9 @@ export const createDailyDeal = asyncHandler(async (req, res) => {
   await dailyDeal.populate('partnerstoreId', 'businessName category logo');
 
   console.log(`✅ Daily deal created: ${dailyDeal.dealTitle} (${dailyDeal.slug})`);
+
+  // New deal shows on /deals straight away
+  await refreshFrontendCache(DEALS_LIST_TAG);
 
   res.status(201).json({
     success: true,
@@ -285,8 +288,8 @@ export const updateDailyDeal = asyncHandler(async (req, res) => {
 
   console.log(`✅ Daily deal updated: ${dailyDeal.dealTitle}`);
 
-  // Fresh share previews straight after the edit
-  await refreshFrontendCache(`deal-${dailyDeal._id}`);
+  // Fresh share previews + /deals straight after the edit
+  await refreshFrontendCache([`deal-${dailyDeal._id}`, DEALS_LIST_TAG]);
 
   res.status(200).json({
     success: true,
@@ -312,6 +315,9 @@ export const deleteDailyDeal = asyncHandler(async (req, res) => {
   await DailyDeal.findByIdAndDelete(req.params.id);
 
   console.log(`🗑️ Daily deal deleted: ${dailyDeal.dealTitle}`);
+
+  // Gone from /deals and its own page straight away
+  await refreshFrontendCache([`deal-${dailyDeal._id}`, DEALS_LIST_TAG]);
 
   res.status(200).json({
     success: true,

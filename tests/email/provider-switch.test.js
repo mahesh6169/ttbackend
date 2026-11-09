@@ -7,6 +7,9 @@ import { send as mailjetSend } from '../../utils/notifications/mailjet.js';
 import { send as mailersendSend } from '../../utils/notifications/mailersend.js';
 import { sendWelcomeEmail, sendVerifyOtpEmail, sendResetOtpEmail, sendAccountDeletionEmail } from '../../utils/notifications/users/newUserNotifications.js';
 import { sendTicketPurchaseConfirmationToBuyer } from '../../utils/notifications/events/sendPaidTicketNotifications.js';
+import { sendContactEmail } from '../../utils/notifications/support/sendContactEmail.js';
+import { sendReportEmail } from '../../utils/notifications/support/sendReportEmail.js';
+import { sendRemovalEmail } from '../../utils/notifications/support/sendRemovalEmail.js';
 import { clearEmailsBeforeEach, getCapturedEmails } from '../helpers/email.js';
 
 clearEmailsBeforeEach();
@@ -103,6 +106,37 @@ test('the Mailjet adapter maps our fields and sends inline and regular attachmen
   expect(m.TextPart).toBe('Hi');
   expect(m.InlinedAttachments).toEqual([{ ContentType: 'image/png', Filename: 'logo.png', Base64Content: 'AAA', ContentID: 'logo' }]);
   expect(m.Attachments).toEqual([{ ContentType: 'application/pdf', Filename: 'ticket.pdf', Base64Content: 'BBB' }]);
+  expect(m.ReplyTo).toBeUndefined();
+});
+
+test('both adapters pass a reply-to address through, so Reply goes to that person', async () => {
+  let mjBody;
+  const mjFetch = async (url, opts) => {
+    mjBody = JSON.parse(opts.body);
+    return { ok: true, status: 200, json: async () => ({ Messages: [{ Status: 'success' }] }) };
+  };
+  await mailjetSend({ to: 'support@x.co', subject: 's', html: '<p>h</p>', replyTo: 'visitor@y.co' }, { fetchImpl: mjFetch, env: mjEnv });
+  expect(mjBody.Messages[0].ReplyTo).toEqual({ Email: 'visitor@y.co' });
+
+  let msBody;
+  const msFetch = async (url, opts) => { msBody = JSON.parse(opts.body); return { ok: true, status: 202, text: async () => '' }; };
+  await mailersendSend({ to: 'support@x.co', subject: 's', html: '<p>h</p>', replyTo: 'visitor@y.co' }, { fetchImpl: msFetch });
+  expect(msBody.reply_to).toEqual({ email: 'visitor@y.co' });
+});
+
+test('contact, report and removal emails reply to the visitor, and skip reply-to when the email is missing or not an address', async () => {
+  await sendContactEmail({ title: 'Hi', category: 'General', message: 'Hello', senderName: 'Vis', senderEmail: ' visitor@y.co ' });
+  await sendReportEmail({ type: 'event', id: 'e1', title: 'Ev', itemUrl: 'u', reason: 'spam', message: 'm', senderName: 'R', senderEmail: 'reporter@y.co' });
+  await sendRemovalEmail({ type: 'listing', id: 'l1', title: 'Li', itemUrl: 'u', message: 'm', senderName: 'O', senderEmail: 'owner@y.co' });
+  await sendContactEmail({ title: 'Anon', category: 'General', message: 'Hello', senderName: '', senderEmail: '' });
+  await sendContactEmail({ title: 'Bad', category: 'General', message: 'Hello', senderName: 'B', senderEmail: 'a@b.co, evil@z.co' });
+  const caps = getCapturedEmails();
+  const bySubject = (part) => caps.find((c) => c.subject.includes(part));
+  expect(bySubject('Contact Form: General - Hi').replyTo).toBe('visitor@y.co');
+  expect(bySubject('Report:').replyTo).toBe('reporter@y.co');
+  expect(bySubject('Removal Request:').replyTo).toBe('owner@y.co');
+  expect(bySubject('Anon').replyTo).toBeUndefined();
+  expect(bySubject('Bad').replyTo).toBeUndefined();
 });
 
 test('the MailerSend adapter takes our options and treats a 202 as success', async () => {
@@ -112,6 +146,7 @@ test('the MailerSend adapter takes our options and treats a 202 as success', asy
   expect(res).toMatchObject({ success: true, status: 202 });
   expect(body.to).toEqual([{ email: 'a@b.c' }]);
   expect(body.subject).toBe('s');
+  expect(body.reply_to).toBeUndefined();
 });
 
 test('all four account emails (welcome, verify, reset, deletion) are sent as sign-in email', async () => {

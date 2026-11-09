@@ -8,6 +8,7 @@ import cloudinary from '../../../utils/cloudinary.js';
 import { cascadeDeleteEvent } from '../../../utils/events/deleteEventHelpers.js';
 import { PLATFORM_PRICE_CONFIG, getEffectivePlatformFee, validatePlatformFee, validatePlatformFeePercentage, formatPlatformFeeBreakdown } from '../../../utils/constants/platformPriceConfig.js';
 import PaidTicket from '../../../models/paidTicket.js';
+import { refreshFrontendCache, EVENTS_LIST_TAG } from '../../../utils/refreshFrontendCache.js';
 
 export const getManageEvents = asyncHandler(async (req, res) => {
   const page = Number(req.query.page) || 1;
@@ -224,6 +225,8 @@ export const setPastFeatured = asyncHandler(async (req, res) => {
 
   event.featuredInPast = featured;
   await event.save();
+  // The Past events strip on /events
+  await refreshFrontendCache([`event-${event._id}`, EVENTS_LIST_TAG]);
 
   return res.status(200).json({ success: true, _id: event._id, featuredInPast: event.featuredInPast });
 });
@@ -372,6 +375,9 @@ export const sendEventReminderEmail = asyncHandler(async (req, res) => {
           message: 'Failed to delete event from database',
         });
       }
+
+      // Gone from /events, the home page and its own page straight away
+      await refreshFrontendCache([...allEventIds.map((id) => `event-${id}`), EVENTS_LIST_TAG]);
   
       return res.status(200).json({
         success: true,
@@ -410,6 +416,8 @@ export const blockEventById = asyncHandler(async (req, res) => {
   event.blockedAt = new Date();
   event.blockedBy = req.user.id;
   await event.save();
+  // Hidden from /events, the home page and its own page straight away
+  await refreshFrontendCache([`event-${event._id}`, EVENTS_LIST_TAG]);
 
   return res.status(200).json({ success: true, isBlocked: true, blockedAt: event.blockedAt });
 });

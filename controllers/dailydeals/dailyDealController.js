@@ -6,7 +6,7 @@ import { uploadDealImages, deleteDealImages, updateDealImages } from '../../util
 import { stripHtml } from '../../utils/helpers/shared/sanitize.js';
 import { addDealNotification, updateDealNotification, deleteDealNotification } from '../../utils/notifications/dailydeals/sendDealNotifications.js';
 import { getCategories } from '../../utils/dailydeals/categoryMappings.js';
-import { refreshFrontendCache } from '../../utils/refreshFrontendCache.js';
+import { refreshFrontendCache, DEALS_LIST_TAG } from '../../utils/refreshFrontendCache.js';
 import { dealsSitemapFilter } from '../../utils/seo/sitemapFilters.js';
 
 const CURATOR_EMAILS = (process.env.CURATOR_EMAILS || '')
@@ -515,6 +515,9 @@ export const addDeal = asyncHandler(async (req, res) => {
     console.error('Failed to send deal creation notification:', notificationError);
   }
 
+  // New deal shows on /deals straight away
+  await refreshFrontendCache(DEALS_LIST_TAG);
+
   res.status(201).json({
     success: true,
     deal: dailyDeal
@@ -606,8 +609,8 @@ export const updateDeal = asyncHandler(async (req, res) => {
     console.error('Failed to send deal update notification:', notificationError);
   }
 
-  // Fresh share previews straight after the edit
-  await refreshFrontendCache(`deal-${dailyDeal._id}`);
+  // Fresh share previews + /deals straight after the edit
+  await refreshFrontendCache([`deal-${dailyDeal._id}`, DEALS_LIST_TAG]);
 
   res.status(200).json({
     success: true,
@@ -657,6 +660,9 @@ export const deleteDeal = asyncHandler(async (req, res) => {
   } catch (notificationError) {
     console.error('Failed to send deal deletion notification:', notificationError);
   }
+
+  // Gone from /deals and its own page straight away
+  await refreshFrontendCache([`deal-${dealId}`, DEALS_LIST_TAG]);
 
   res.status(200).json({
     success: true,

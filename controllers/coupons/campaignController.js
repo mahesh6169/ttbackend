@@ -4,7 +4,7 @@ import Store from '../../models/coupons/store.js';
 import CouponCode from '../../models/coupons/couponCode.js';
 import { campaignCreatedNotification, campaignUpdatedNotification, campaignRemovedNotification } from '../../utils/notifications/coupons/sendCouponNotifications.js';
 import { generateSlug, ensureUniqueSlug } from '../../utils/helpers/shared/generateSlug.js';
-import { refreshFrontendCache } from '../../utils/refreshFrontendCache.js';
+import { refreshFrontendCache, COUPONS_LIST_TAG } from '../../utils/refreshFrontendCache.js';
 import { couponsSitemapFilter } from '../../utils/seo/sitemapFilters.js';
 
 // Accept an array directly (JSON body) or a JSON string (multipart), else fall back.
@@ -100,6 +100,9 @@ export const createCampaign = asyncHandler(async (req, res) => {
     store,
     admin: req.user
   }).catch(err => console.error('Campaign notification error:', err));
+
+  // New coupon shows on /coupons straight away
+  await refreshFrontendCache(COUPONS_LIST_TAG);
 
   res.status(201).json({
     success: true,
@@ -458,8 +461,8 @@ export const updateCampaign = asyncHandler(async (req, res) => {
     }).catch(err => console.error('Campaign update notification error:', err));
   }
 
-  // Fresh share previews straight after the edit
-  await refreshFrontendCache(`campaign-${updatedCampaign.slug}`);
+  // Fresh share previews + /coupons straight after the edit
+  await refreshFrontendCache([`campaign-${updatedCampaign.slug}`, COUPONS_LIST_TAG]);
 
   res.status(200).json({
     success: true,
@@ -516,6 +519,9 @@ export const deleteCampaign = asyncHandler(async (req, res) => {
 
   console.log(`✅ Campaign deleted: ${campaign._id}`);
   console.log(`✅ Cascade deleted ${deletedCodes.deletedCount} coupon code(s)`);
+
+  // Gone from /coupons and its own page straight away
+  await refreshFrontendCache([`campaign-${campaign.slug}`, COUPONS_LIST_TAG]);
 
   res.status(200).json({
     success: true,

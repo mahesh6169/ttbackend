@@ -18,7 +18,7 @@ import {
   sendEventDeletionNotification,
 } from '../../utils/notifications/events/sendEventChangeNotifications.js';
 import { COMMUNITY_VALUES } from '../../utils/constants/communities.js';
-import { refreshFrontendCache } from '../../utils/refreshFrontendCache.js';
+import { refreshFrontendCache, EVENTS_LIST_TAG } from '../../utils/refreshFrontendCache.js';
 import { generateSlug, ensureUniqueSlug } from '../../utils/helpers/shared/generateSlug.js';
 import {
   parseSharedFields,
@@ -228,6 +228,8 @@ export const addFreeEvent = asyncHandler(async (req, res) => {
     };
 
     console.log(`✅ Free event creation complete. Parent: ${parentEvent._id}, Instances: ${instances.length}`);
+    // New event shows on /events and the home page straight away
+    await refreshFrontendCache(EVENTS_LIST_TAG);
     return res.status(201).json(response);
 
   } catch (err) {
@@ -485,8 +487,11 @@ export const updateFreeEvent = asyncHandler(async (req, res) => {
       });
     }
 
-    // Fresh share previews straight after the edit (instances share the parent's details)
-    await refreshFrontendCache([updatedEvent._id, ...childInstanceIds].map((id) => `event-${id}`));
+    // Fresh share previews + lists straight after the edit (instances share the parent's details)
+    await refreshFrontendCache([
+      ...[updatedEvent._id, ...childInstanceIds].map((id) => `event-${id}`),
+      EVENTS_LIST_TAG,
+    ]);
 
     // ✅ Prepare response
     const response = {
@@ -648,6 +653,9 @@ export const addPaidEvent = asyncHandler(async (req, res) => {
       console.error("❌ Failed to send paid event creation email:", emailError.message);
       // Don't fail the request if email fails
     }
+
+    // New event shows on /events and the home page straight away
+    await refreshFrontendCache(EVENTS_LIST_TAG);
 
     res.status(201).json({
       success: true,
@@ -936,8 +944,8 @@ export const updatePaidEvent = asyncHandler(async (req, res) => {
       });
     }
 
-    // Fresh share previews straight after the edit
-    await refreshFrontendCache(`event-${updatedEvent._id}`);
+    // Fresh share previews + lists straight after the edit
+    await refreshFrontendCache([`event-${updatedEvent._id}`, EVENTS_LIST_TAG]);
 
     res.status(200).json({
       success: true,
@@ -1281,6 +1289,7 @@ export const deleteEvent = asyncHandler(async (req, res) => {
   // the admin purge queue is the only hard delete (which frees storage).
   const now = new Date();
   const isPast = event.expiryDate && new Date(event.expiryDate) < now;
+  const childIds = await Event.find({ 'recurrence.parentEventId': event._id }).distinct('_id');
 
   await Event.updateMany(
     { $or: [{ _id: event._id }, { 'recurrence.parentEventId': event._id }] },
@@ -1300,6 +1309,9 @@ export const deleteEvent = asyncHandler(async (req, res) => {
       console.error('Failed to send cancellation notifications:', notifyErr.message);
     });
   }
+
+  // Gone from /events, the home page and its own page straight away
+  await refreshFrontendCache([...[event._id, ...childIds].map((id) => `event-${id}`), EVENTS_LIST_TAG]);
 
   res.status(200).json({
     success: true,
@@ -1537,6 +1549,9 @@ export const toggleEventGoLive = asyncHandler(async (req, res) => {
     // Toggle goLive status
     event.goLive = goLive;
     await event.save();
+
+    // Shows on / drops off /events, the home page and its own page straight away
+    await refreshFrontendCache([`event-${event._id}`, EVENTS_LIST_TAG]);
 
     return res.status(200).json({
       success: true,

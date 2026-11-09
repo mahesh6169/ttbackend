@@ -1,4 +1,5 @@
 import { sendEmail } from '../sendEmail.js';
+import { visitorReplyTo } from './replyTo.js';
 
 export const sendContactEmail = async ({ title, category, message, senderName, senderEmail, mobile }) => {
   const emailContent = `
@@ -33,6 +34,7 @@ ${message}
         name: `${process.env.NOTIFICATION_PLATFORM_NAME || 'Desify'} Contact`
       },
       to: process.env.ADMIN_EMAIL,
+      replyTo: visitorReplyTo(senderEmail),
       subject: `Contact Form: ${category} - ${title}`,
       html: htmlContent,
       text: emailContent

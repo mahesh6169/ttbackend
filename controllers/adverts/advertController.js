@@ -18,7 +18,7 @@ import {
 import { COMMUNITY_VALUES } from '../../utils/constants/communities.js';
 import { getCategoryExpiryDays } from '../../utils/constants/expiryConfig.js';
 import { generateSlug, ensureUniqueSlug } from '../../utils/helpers/shared/generateSlug.js';
-import { refreshFrontendCache } from '../../utils/refreshFrontendCache.js';
+import { refreshFrontendCache, LISTINGS_LIST_TAG } from '../../utils/refreshFrontendCache.js';
 import { listingsSitemapFilter } from '../../utils/seo/sitemapFilters.js';
 
 const CURATOR_EMAILS = (process.env.CURATOR_EMAILS || '')
@@ -230,6 +230,9 @@ export const addAdvert = asyncHandler(async (req, res) => {
         console.error('⚠️ Wanted ad notification failed:', err.message)
       );
     }
+
+    // New listing shows on /listings and the home page straight away
+    await refreshFrontendCache(LISTINGS_LIST_TAG);
 
     return sendSuccess(res, "Advert created successfully", { advert }, 201);
   } catch (error) {
@@ -536,8 +539,8 @@ newImages = newImages.filter(
       console.warn("⚠️ Update notification email failed:", notifyErr.message);
     }
 
-    // Fresh share previews straight after the edit
-    await refreshFrontendCache(`listing-${updatedAdvert._id}`);
+    // Fresh share previews + lists straight after the edit
+    await refreshFrontendCache([`listing-${updatedAdvert._id}`, LISTINGS_LIST_TAG]);
 
     return sendSuccess(res, "Advert updated successfully", { advert: updatedAdvert });
   } catch (error) {
@@ -686,6 +689,9 @@ export const deleteAdvert = asyncHandler(async (req, res) => {
       console.warn("⚠️ Email deletion notification failed:", notifyErr.message);
     }
 
+    // Gone from /listings, the home page and its own page straight away
+    await refreshFrontendCache([`listing-${advertId}`, LISTINGS_LIST_TAG]);
+
     // 6️⃣ Success response
     return res.status(200).json({
       success: true,
@@ -756,6 +762,9 @@ export const renewAdvert = asyncHandler(async (req, res) => {
       console.warn('⚠️ Renewal email notification failed:', notifyErr.message);
     }
 
+    // Back on /listings, the home page and its own page straight away
+    await refreshFrontendCache([`listing-${advert._id}`, LISTINGS_LIST_TAG]);
+
     return res.status(200).json({
       success: true,
       message: 'Advert renewed successfully',
@@ -795,6 +804,9 @@ export const toggleAdvertGoLive = asyncHandler(async (req, res) => {
     // Toggle visibility
     advert.status = goLive ? 'active' : 'inactive';
     await advert.save();
+
+    // Shows on / drops off /listings, the home page and its own page straight away
+    await refreshFrontendCache([`listing-${advert._id}`, LISTINGS_LIST_TAG]);
 
     return res.status(200).json({
       success: true,

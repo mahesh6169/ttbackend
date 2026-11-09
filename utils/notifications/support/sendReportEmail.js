@@ -1,4 +1,5 @@
 import { sendEmail } from '../sendEmail.js';
+import { visitorReplyTo } from './replyTo.js';
 
 export const sendReportEmail = async ({ type, id, title, itemUrl, reason, message, senderName, senderEmail }) => {
     const reasonLabel = reason ? reason.charAt(0).toUpperCase() + reason.slice(1) : 'Not specified';
@@ -37,6 +38,7 @@ ${message || 'No additional details provided'}
                 name: `${process.env.NOTIFICATION_PLATFORM_NAME || 'Desify'} Report`
             },
             to: process.env.ADMIN_EMAIL,
+            replyTo: visitorReplyTo(senderEmail),
             subject: `Report: ${type.toUpperCase()} - ${title}`,
             html: htmlContent,
             text: emailContent

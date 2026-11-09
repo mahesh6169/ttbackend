@@ -1,4 +1,5 @@
 import { sendEmail } from '../sendEmail.js';
+import { visitorReplyTo } from './replyTo.js';
 
 export const sendRemovalEmail = async ({ type, id, title, itemUrl, message, senderName, senderEmail }) => {
     const typeLabel = type.charAt(0).toUpperCase() + type.slice(1);
@@ -35,6 +36,7 @@ ${message || 'No additional details provided'}
                 name: `${process.env.NOTIFICATION_PLATFORM_NAME || 'Desify'} Support`
             },
             to: process.env.ADMIN_EMAIL,
+            replyTo: visitorReplyTo(senderEmail),
             subject: `Removal Request: ${typeLabel} - ${title}`,
             html: htmlContent,
             text: emailContent
