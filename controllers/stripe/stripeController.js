@@ -4,6 +4,7 @@ import stripe from '../../config/stripe.js';
 import User from '../../models/userModel.js';
 import Event from '../../models/eventModel.js';
 import { computeStripeAccountStatus } from '../../utils/events/stripeAccountHelpers.js';
+import { fulfilPaidOrder } from '../../utils/events/paidOrderFulfilment.js';
 
 // Stripe Connect Onboarding: POST /api/stripe/onboard
 export const startOnboarding = async (req, res) => {
@@ -614,26 +615,27 @@ export const stripeWebhook = async (req, res) => {
    }
  }
 
- // Handle payment events
- if (event.type === 'payment_intent.succeeded') {
+ // Paid ticket orders (feature 1015): Stripe's message is the safety net that makes the tickets
+ // when the buyer's browser never reports back. amount_capturable_updated = money on hold (new
+ // checkout); succeeded = charged (older checkout, or the follow-up after we take a hold). Either
+ // way fulfilPaidOrder makes the order exactly once; a no-op if the browser already did.
+ if ((event.type === 'payment_intent.amount_capturable_updated' || event.type === 'payment_intent.succeeded') &&
+     event.data.object?.metadata?.eventId) {
    const paymentIntent = event.data.object;
-   console.log('💰 Payment successful!', {
-     id: paymentIntent.id,
-     amount: paymentIntent.amount / 100, // Convert cents to dollars
-     currency: paymentIntent.currency,
-     metadata: paymentIntent.metadata
-   });
-   
-   // Log ticket purchase details if available
-   if (paymentIntent.metadata.eventId) {
-     console.log('🎫 Ticket purchase details:', {
+   try {
+     const result = await fulfilPaidOrder({
+       paymentIntentId: paymentIntent.id,
        eventId: paymentIntent.metadata.eventId,
-       eventTitle: paymentIntent.metadata.eventTitle,
-       ticketCount: paymentIntent.metadata.ticketCount,
-       buyerEmail: paymentIntent.metadata.buyerEmail,
-       organizerAmount: paymentIntent.metadata.organizerAmount,
-       platformFee: paymentIntent.metadata.totalPlatformFee
+       stripeAccountId: event.account || paymentIntent.metadata.organizerAccountId,
+       source: 'webhook',
      });
+     console.log(`🎫 Webhook order ${paymentIntent.id}: ${result.http} ${result.body?.errorCode || result.body?.message || ''}`);
+     if (result.retry) {
+       return res.status(503).json({ received: true, retry: true });
+     }
+   } catch (err) {
+     console.error(`❌ Webhook order failed for ${paymentIntent.id}:`, err);
+     return res.status(500).json({ received: true, error: 'order processing failed' });
    }
  }
 

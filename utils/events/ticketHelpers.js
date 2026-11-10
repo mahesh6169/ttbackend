@@ -93,7 +93,12 @@ export const bundleMultipleMessage = (name, bundleSize) =>
  * @param {Object} tickets - Object with ticketTypeId: quantity pairs
  * @returns {Object} { isValid: boolean, error?: string }
  */
-export const validateTicketPurchase = async (event, tickets) => {
+// options.at   - judge the sales cutoff and ticket-type start/end dates at this moment instead of
+//                now (feature 1015: an order is judged by when Pay was clicked, within the window).
+// options.skipCapacity - leave the capacity count out; the order step counts inside its own
+//                locked transaction so two buyers can never both take the last ticket.
+export const validateTicketPurchase = async (event, tickets, options = {}) => {
+  const at = options.at || new Date();
   console.log('🔍 Validating ticket purchase for event:', event._id);
   
   try {
@@ -107,7 +112,7 @@ export const validateTicketPurchase = async (event, tickets) => {
     }
 
     // Sales close at 11:59:59 PM on the event's local calendar day (D1).
-    if (!isSalesOpen(event)) {
+    if (!isSalesOpen(event, at)) {
       return { isValid: false, errorCode: 'SALES_CLOSED', error: 'Ticket sales for this event have closed.' };
     }
 
@@ -141,7 +146,7 @@ export const validateTicketPurchase = async (event, tickets) => {
       }
 
       // Check date restrictions only (removed quantity availability check)
-      const now = new Date();
+      const now = at;
 
       if (ticketType.startDate && new Date(ticketType.startDate) > now) {
         return { 
@@ -184,7 +189,7 @@ export const validateTicketPurchase = async (event, tickets) => {
     }
 
     // Check overall event capacity (if limited)
-    if (event.capacity && event.capacity > 0) {
+    if (!options.skipCapacity && event.capacity && event.capacity > 0) {
       // Calculate current tickets sold with retry for accuracy
       let currentTicketsSold = 0;
       try {

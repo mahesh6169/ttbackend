@@ -230,6 +230,13 @@ const eventSchema = new mongoose.Schema(
       type: Boolean,
       default: false // true after the event's first sale or first RSVP
     },
+    // Bumped inside every paid-order transaction (feature 1015). Writing the event doc first makes
+    // two simultaneous orders for the same event conflict, so one retries after the other commits
+    // and re-counts - the last ticket can never be sold twice.
+    purchaseSeq: {
+      type: Number,
+      default: 0
+    },
     hasSeating: {
       type: Boolean,
       default: false // true once a non-empty seat layout has been saved

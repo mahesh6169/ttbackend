@@ -430,3 +430,32 @@ export const sendTicketSaleNotificationToOrganizer = async ({ invoice, tickets, 
     // Don't throw error for organizer email - it's not critical
   }
 };
+
+/**
+ * Tell the buyer their payment was released, not taken (feature 1015): the tickets could not be
+ * made while they were paying (sold out, seat taken, sales closed, ...). Sent once, by whichever
+ * path (browser or Stripe webhook) released the order. `reasonText` is the plain-English reason.
+ */
+export const sendPurchaseNotChargedToBuyer = async ({ buyer, eventTitle, amountCents, reasonText }) => {
+  if (!buyer?.email) return;
+  const amount = typeof amountCents === 'number' ? `$${(amountCents / 100).toFixed(2)}` : 'the amount';
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+      <p>Hi ${buyer.firstName || 'there'},</p>
+      <p>${reasonText}</p>
+      <p><strong>Your card has not been charged.</strong> No tickets were issued for <strong>${eventTitle || 'this event'}</strong>.</p>
+      <p>Your bank may briefly show a pending amount of ${amount}. It is not a charge - your bank will remove it, usually within a few days.</p>
+      <p>- ${platformTeam}</p>
+    </div>
+  `;
+  try {
+    await sendEmail({
+      to: buyer.email,
+      subject: `Not charged: ${eventTitle || 'your ticket order'}`,
+      html,
+      category: 'events',
+    });
+  } catch (error) {
+    console.error(`Failed to send not-charged email: ${error.message}`);
+  }
+};
