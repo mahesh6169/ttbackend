@@ -442,9 +442,9 @@ export const sendPurchaseNotChargedToBuyer = async ({ buyer, eventTitle, amountC
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
       <p>Hi ${buyer.firstName || 'there'},</p>
-      <p>${reasonText}</p>
-      <p><strong>Your card has not been charged.</strong> No tickets were issued for <strong>${eventTitle || 'this event'}</strong>.</p>
-      <p>Your bank may briefly show a pending amount of ${amount}. It is not a charge - your bank will remove it, usually within a few days.</p>
+      <p>Sorry, your order for <strong>${eventTitle || 'this event'}</strong> didn't go through. ${reasonText}</p>
+      <p><strong>You will not be charged.</strong> No tickets were issued.</p>
+      <p>Your bank may briefly show a pending amount of ${amount}, which will be removed.</p>
       <p>- ${platformTeam}</p>
     </div>
   `;

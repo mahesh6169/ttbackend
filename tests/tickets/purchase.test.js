@@ -147,7 +147,7 @@ describe('the tickets cannot be made while paying - the buyer is not charged', (
     const res = await confirmPurchase(buyer, event._id, piId);
     expect(res.status).toBe(409);
     expect(res.body.errorCode).toBe('NOT_CHARGED');
-    expect(res.body.message).toMatch(/sold out.*not been charged/i);
+    expect(res.body.message).toBe('The last tickets sold out while you were paying. You will not be charged.');
     expect((await stripePayment(piId)).status).toBe('canceled');
     expect(await PaidTicket.countDocuments({ paymentIntentId: piId })).toBe(0);
     const mail = emailsTo('buyer@test.dev');

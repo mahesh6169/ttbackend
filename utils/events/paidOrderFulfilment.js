@@ -45,14 +45,17 @@ const IMMEDIATE_WEBHOOK_GRACE_MS = 60 * 1000;
 
 const PAID_STATES = ['succeeded', 'requires_capture'];
 
+// What happened, one short sentence per reason (screen + email). The screen adds "You will not be
+// charged." - true whenever it shows: the hold has already been cancelled, and held money for an
+// order without tickets is never taken.
 const NOT_CHARGED_TEXT = {
-  SOLD_OUT: 'Sorry, the last tickets sold out while your payment was going through.',
-  SEAT_TAKEN: 'Sorry, your seats were taken while your payment was going through.',
-  SALES_CLOSED: 'Sorry, ticket sales for this event closed while your payment was going through.',
-  UNAVAILABLE: 'Sorry, these tickets stopped being available while your payment was going through.',
-  CAPTURE_FAILED: 'Sorry, we could not complete your payment.',
+  SOLD_OUT: 'The last tickets sold out while you were paying.',
+  SEAT_TAKEN: 'Your seats were taken while you were paying.',
+  SALES_CLOSED: 'Ticket sales closed while you were paying.',
+  UNAVAILABLE: 'These tickets stopped being available while you were paying.',
+  CAPTURE_FAILED: "We couldn't complete your payment.",
 };
-const PENDING_NOTE = 'Your card has not been charged. You may briefly see a pending amount, which your bank will remove.';
+const NOT_CHARGED_NOTE = 'You will not be charged.';
 
 class OrderError extends Error {
   constructor(reason) {
@@ -69,7 +72,7 @@ const notChargedBody = (reason) => ({
   errorCode: 'NOT_CHARGED',
   reason,
   notCharged: true,
-  message: `${NOT_CHARGED_TEXT[reason] || NOT_CHARGED_TEXT.UNAVAILABLE} ${PENDING_NOTE}`,
+  message: `${NOT_CHARGED_TEXT[reason] || NOT_CHARGED_TEXT.UNAVAILABLE} ${NOT_CHARGED_NOTE}`,
 });
 
 const doneBody = (invoice, tickets, idempotent) => ({
