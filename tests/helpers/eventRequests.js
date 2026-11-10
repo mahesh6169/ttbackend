@@ -5,6 +5,7 @@
 import request from 'supertest';
 import app from '../../app.js';
 import { cookieFor, API_KEY } from './factories.js';
+import stripe from '../../config/stripe.js';
 
 export const FUTURE = () => new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
 export const PAST = () => new Date(Date.now() - 24 * 3600 * 1000).toISOString();
@@ -119,3 +120,46 @@ export const byOrg = (slug) => api('get', `/api/events/by/${slug}`);
 // The public Past strip, as a list of event ids.
 export const pastEventIds = async () =>
   ((await api('get', '/api/events/past')).body.events || []).map((e) => String(e._id));
+
+// ---- Paid order paths (feature 1015) ----
+
+// Pay at checkout the new way: the money is only held until the tickets exist.
+export const createHoldPaymentIntent = (user, eventId, tickets, extra = {}) =>
+  createPaymentIntent(user, eventId, tickets, { captureMode: 'hold', ...extra });
+
+// What the browser's card form does: authorise the payment with Stripe's test Visa card, on the
+// test connected account. A hold payment ends in requires_capture, an immediate one in succeeded.
+export const authoriseWithTestCard = (paymentIntentId) =>
+  stripe.paymentIntents.confirm(
+    paymentIntentId,
+    { payment_method: 'pm_card_visa' },
+    { stripeAccount: process.env.TEST_STRIPE_ACCOUNT_ID }
+  );
+
+// The payment as Stripe has it now (status, amount_received, ...).
+export const stripePayment = (paymentIntentId) =>
+  stripe.paymentIntents.retrieve(paymentIntentId, {}, { stripeAccount: process.env.TEST_STRIPE_ACCOUNT_ID });
+
+// The browser path: "I've paid, make my tickets".
+export const confirmPurchase = (user, eventId, paymentIntentId, body = {}) =>
+  api('post', `/api/events/${eventId}/paid/confirm-payment`, user)
+    .send({ paymentIntentId, buyerInfo: BUYER, ...body });
+
+// The Stripe path: a correctly signed webhook for a connected-account payment event.
+export const sendStripeWebhook = async (type, paymentIntentId) => {
+  const pi = await stripePayment(paymentIntentId);
+  const payload = JSON.stringify({
+    id: `evt_test_${Date.now()}`,
+    object: 'event',
+    type,
+    account: process.env.TEST_STRIPE_ACCOUNT_ID,
+    created: Math.floor(Date.now() / 1000),
+    data: { object: pi },
+  });
+  const signature = stripe.webhooks.generateTestHeaderString({ payload, secret: process.env.STRIPE_WEBHOOK_SECRET });
+  return request(app)
+    .post('/api/stripe/webhook')
+    .set('Content-Type', 'application/json')
+    .set('stripe-signature', signature)
+    .send(payload);
+};

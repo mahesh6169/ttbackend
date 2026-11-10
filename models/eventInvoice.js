@@ -183,7 +183,16 @@ const eventInvoiceSchema = new mongoose.Schema({
     type: Date,
     required: true,
     default: Date.now
-  }
+  },
+
+  // Order emails (feature 1015). Set true when the order is created; whichever path (browser or
+  // Stripe webhook) flips it to false first sends the buyer + organiser emails, so they go out
+  // exactly once even after a crash. Older invoices have no flag and are never re-sent.
+  notificationsPending: {
+    type: Boolean,
+    default: undefined
+  },
+  notificationsSentAt: Date
   
 }, {
   timestamps: true

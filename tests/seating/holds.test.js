@@ -6,7 +6,8 @@ import Event from '../../models/eventModel.js';
 import Reservation from '../../models/reservationModel.js';
 import { cleanupExpiredReservations } from '../../controllers/events/reservationController.js';
 import { createOrganiser, createUser, createPaidEvent } from '../helpers/factories.js';
-import { api, reserve } from '../helpers/eventRequests.js';
+import { api, reserve, createHoldPaymentIntent, authoriseWithTestCard, confirmPurchase, sendStripeWebhook, stripePayment } from '../helpers/eventRequests.js';
+import PaidTicket from '../../models/paidTicket.js';
 import { rowSeats, seatById } from '../helpers/seating.js';
 
 const past = () => new Date(Date.now() - 60_000);
@@ -102,4 +103,102 @@ test('a buyer can pick as many seats as tickets reserved, and fewer', async () =
   const down = await api('put', seatsUrl, member).send({ seatIds: ['A-1', 'A-2', 'A-3', 'A-4'] });
   expect(down.status).toBe(200);
   expect(down.body.seatIds).toHaveLength(4);
+});
+
+// ---- Seats when a paid order is made or released (feature 1015) ----
+
+// A seated event (row A, 4 seats) where each buyer already holds the given seats, the way the seat
+// picker leaves them: seat 'selected' by the buyer + an active reservation listing those seats.
+const seatedWithHolds = async (organiser, holds) => {
+  const holder = {};
+  for (const [buyer, ids] of holds) for (const id of ids) holder[id] = buyer;
+  const seats = ['A-1', 'A-2', 'A-3', 'A-4'].map((seatId, i) => ({
+    seatId, seatNumber: String(i + 1), row: 'A',
+    ...(holder[seatId]
+      ? { status: 'selected', reservedBy: holder[seatId]._id, reservedUntil: future(), sessionId: `s-${holder[seatId]._id}` }
+      : { status: 'available' }),
+  }));
+  const event = await createPaidEvent(organiser, { capacity: 4, seatingLayout: [{ rowLabel: 'A', seats }] });
+  for (const [buyer, ids] of holds) {
+    await Reservation.create({ userId: buyer._id, sessionId: `s-${buyer._id}`, eventId: event._id, seatIds: ids, status: 'active', expiresAt: future() });
+  }
+  return event;
+};
+
+const payForSeats = async (buyer, event, qty) => {
+  const pay = await createHoldPaymentIntent(buyer, event._id, { [event.ticketTypes[0]._id.toString()]: qty });
+  expect(pay.status).toBe(200);
+  await authoriseWithTestCard(pay.body.paymentIntentId);
+  return pay.body.paymentIntentId;
+};
+
+describe('seats when a paid order is made or released', () => {
+  test('Stripe\'s message books the held seats and closes the buyer\'s hold (page closed after paying)', async () => {
+    const organiser = await createOrganiser();
+    const buyer = await createUser();
+    const event = await seatedWithHolds(organiser, [[buyer, ['A-1', 'A-2']]]);
+    const piId = await payForSeats(buyer, event, 2);
+
+    expect((await sendStripeWebhook('payment_intent.amount_capturable_updated', piId)).status).toBe(200);
+
+    const after = await Event.findById(event._id);
+    expect(seatById(after, 'A-1').status).toBe('booked');
+    expect(seatById(after, 'A-2').status).toBe('booked');
+    const tickets = await PaidTicket.find({ paymentIntentId: piId });
+    expect(tickets.map((t) => t.seats[0].seatId).sort()).toEqual(['A-1', 'A-2']);
+    expect(await Reservation.countDocuments({ eventId: event._id, userId: buyer._id })).toBe(0);
+  }, 60000);
+
+  test('a seat taken by someone else while paying: not charged, and the buyer\'s other held seat is freed at once', async () => {
+    const organiser = await createOrganiser();
+    const buyer = await createUser();
+    const other = await createUser();
+    const event = await seatedWithHolds(organiser, [[buyer, ['A-1', 'A-2']]]);
+    const piId = await payForSeats(buyer, event, 2);
+    await Event.updateOne({ _id: event._id }, { $set: { 'seatingLayout.0.seats.1.status': 'booked', 'seatingLayout.0.seats.1.reservedBy': other._id } });
+
+    const res = await confirmPurchase(buyer, event._id, piId);
+    expect(res.status).toBe(409);
+    expect(res.body.reason).toBe('SEAT_TAKEN');
+    expect((await stripePayment(piId)).status).toBe('canceled');
+
+    const after = await Event.findById(event._id);
+    expect(seatById(after, 'A-1').status).toBe('available');
+    expect(String(seatById(after, 'A-2').reservedBy)).toBe(String(other._id)); // the other buyer keeps theirs
+    expect(await PaidTicket.countDocuments({ paymentIntentId: piId })).toBe(0);
+    expect(await Reservation.countDocuments({ eventId: event._id, userId: buyer._id })).toBe(0);
+  }, 60000);
+
+  test('the seat hold ran out but the seats are still free: the buyer still gets them', async () => {
+    const organiser = await createOrganiser();
+    const buyer = await createUser();
+    const event = await seatedWithHolds(organiser, [[buyer, ['A-3']]]);
+    const piId = await payForSeats(buyer, event, 1);
+    // The hold expired and the clean-up freed the seat, nobody took it.
+    await Event.updateOne({ _id: event._id }, { $set: { 'seatingLayout.0.seats.2.status': 'available', 'seatingLayout.0.seats.2.reservedBy': null, 'seatingLayout.0.seats.2.reservedUntil': null } });
+
+    const res = await confirmPurchase(buyer, event._id, piId);
+    const after = await Event.findById(event._id);
+    expect(res.status).toBe(200);
+    expect(seatById(after, 'A-3').status).toBe('booked');
+    expect(String(seatById(after, 'A-3').reservedBy)).toBe(String(buyer._id));
+  }, 60000);
+
+  test('two buyers finishing at the same moment each get their own seats - neither booking overwrites the other', async () => {
+    const organiser = await createOrganiser();
+    const a = await createUser();
+    const b = await createUser();
+    const event = await seatedWithHolds(organiser, [[a, ['A-1']], [b, ['A-4']]]);
+    const piA = await payForSeats(a, event, 1);
+    const piB = await payForSeats(b, event, 1);
+
+    const [ra, rb] = await Promise.all([confirmPurchase(a, event._id, piA), confirmPurchase(b, event._id, piB)]);
+    expect(ra.status).toBe(200);
+    expect(rb.status).toBe(200);
+    const after = await Event.findById(event._id);
+    expect(seatById(after, 'A-1')).toMatchObject({ status: 'booked' });
+    expect(seatById(after, 'A-4')).toMatchObject({ status: 'booked' });
+    expect(String(seatById(after, 'A-1').reservedBy)).toBe(String(a._id));
+    expect(String(seatById(after, 'A-4').reservedBy)).toBe(String(b._id));
+  }, 60000);
 });
