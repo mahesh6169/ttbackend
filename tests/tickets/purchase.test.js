@@ -246,15 +246,18 @@ describe('only Australian Visa, Mastercard or Amex cards can pay', () => {
     expect(isCardAccepted({ brand: 'visa' })).toBe(false); // country unknown
   });
 
-  test('at Pay: an Australian Visa is accepted, an overseas Visa and a Discover are refused with the message', async () => {
+  test('at Pay: Australian Visa and debit Visa / Mastercard are accepted, an overseas Visa and a Discover are refused with the message', async () => {
     const { buyer, event } = await setup();
     const pay = await createHoldPaymentIntent(buyer, event._id, { [typeIdOf(event)]: 1 });
     expect(pay.status).toBe(200);
     const piId = pay.body.paymentIntentId;
 
-    const au = await checkCard(buyer, event._id, piId, await testCardOnStripe('tok_au'));
-    expect(au.status).toBe(200);
-    expect(au.body.accepted).toBe(true);
+    // Stripe's Australian test cards: Visa, and the eftpos co-branded debit Visa and Mastercard.
+    for (const token of ['tok_au', 'tok_visa_debit_eftposAuCoBranded', 'tok_mastercard_debit_eftposAuCoBranded']) {
+      const au = await checkCard(buyer, event._id, piId, await testCardOnStripe(token));
+      expect(au.status).toBe(200);
+      expect(au.body.accepted).toBe(true);
+    }
 
     for (const token of ['tok_visa', 'tok_discover']) {
       const res = await checkCard(buyer, event._id, piId, await testCardOnStripe(token));
