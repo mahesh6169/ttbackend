@@ -84,6 +84,7 @@ import {
 import {
   createPaymentIntent,
   confirmPayment,
+  checkCard,
   validateDiscount,
   getMyTickets,
   getMyAllPaidTickets,
@@ -168,6 +169,7 @@ router.get('/invoices/lookup/:identifier', authMiddleware, getInvoiceByIdentifie
 // 🎫 Paid Ticket Routes (Following Free Event Pattern)
 router.post('/:eventId/paid/create-payment-intent', authMiddleware, createPaymentIntent); // Create payment intent for tickets
 router.post('/:eventId/paid/confirm-payment', authMiddleware, confirmPayment); // Confirm payment and create tickets
+router.post('/:eventId/paid/check-card', authMiddleware, checkCard); // Check the card is Australian Visa/MC/Amex before paying (feature 1016)
 router.post('/:eventId/paid/validate-discount', authMiddleware, validateDiscount); // Validate a discount code at checkout (read-only)
 router.get('/:eventId/paid/my-tickets', authMiddleware, getMyTickets); // Get user's tickets for this event
 router.get('/:eventId/paid/all-tickets', authMiddleware, getAllEventTickets); 

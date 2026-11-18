@@ -127,14 +127,30 @@ export const pastEventIds = async () =>
 export const createHoldPaymentIntent = (user, eventId, tickets, extra = {}) =>
   createPaymentIntent(user, eventId, tickets, { captureMode: 'hold', ...extra });
 
-// What the browser's card form does: authorise the payment with Stripe's test Visa card, on the
-// test connected account. A hold payment ends in requires_capture, an immediate one in succeeded.
-export const authoriseWithTestCard = (paymentIntentId) =>
+// What the browser's card form does: authorise the payment with a Stripe test card, on the test
+// connected account. Default: Stripe's Australian test Visa (feature 1016: only Australian cards are
+// accepted); pass 'pm_card_visa' for the US test Visa. A hold payment ends in requires_capture, an
+// immediate one in succeeded.
+export const authoriseWithTestCard = (paymentIntentId, paymentMethod = 'pm_card_au') =>
   stripe.paymentIntents.confirm(
     paymentIntentId,
-    { payment_method: 'pm_card_visa' },
+    { payment_method: paymentMethod },
     { stripeAccount: process.env.TEST_STRIPE_ACCOUNT_ID }
   );
+
+// What the browser's card form does first (feature 1016): make the card on Stripe, on the test
+// connected account, from a Stripe test token (tok_au = Australian Visa, tok_visa = US Visa,
+// tok_discover = US Discover). Returns the payment method id.
+export const testCardOnStripe = async (token) =>
+  (await stripe.paymentMethods.create(
+    { type: 'card', card: { token } },
+    { stripeAccount: process.env.TEST_STRIPE_ACCOUNT_ID }
+  )).id;
+
+// The checkout's "is this card accepted?" call, made at Pay before the money is held.
+export const checkCard = (user, eventId, paymentIntentId, paymentMethodId) =>
+  api('post', `/api/events/${eventId}/paid/check-card`, user)
+    .send({ paymentIntentId, paymentMethodId });
 
 // The payment as Stripe has it now (status, amount_received, ...).
 export const stripePayment = (paymentIntentId) =>
