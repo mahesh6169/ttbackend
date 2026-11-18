@@ -13,6 +13,7 @@ import { cleanupExpiredReservations } from './reservationController.js';
 import { getEffectivePlatformFee, computeCommissionCents } from '../../utils/constants/platformPriceConfig.js';
 import PendingOrder from '../../models/pendingOrder.js';
 import { fulfilPaidOrder, ORDER_WINDOW_MS } from '../../utils/events/paidOrderFulfilment.js';
+import { isCardAccepted, cardOf, CARD_NOT_ACCEPTED_MESSAGE } from '../../utils/events/cardRules.js';
 
 
 // @desc    Create Payment Intent for ticket purchase
@@ -358,6 +359,47 @@ export const confirmPayment = asyncHandler(async (req, res) => {
       message: 'Failed to confirm payment and create tickets',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
+  }
+});
+
+// @desc    Check the buyer's card before any money is held (feature 1016)
+// @route   POST /api/events/:eventId/paid/check-card
+// @access  Private
+// The checkout page creates the card on Stripe first and asks here; only an accepted card goes on
+// to Stripe's confirm. A refused card is an expected user case: 200 with accepted:false + message.
+export const checkCard = asyncHandler(async (req, res) => {
+  try {
+    const { paymentIntentId, paymentMethodId } = req.body;
+    const eventId = req.params.eventId;
+    if (!paymentIntentId || !paymentMethodId) {
+      return res.status(400).json({ success: false, message: 'Missing payment details' });
+    }
+
+    const pending = await PendingOrder.findOne({ paymentIntentId }).select('user event stripeAccountId').lean();
+    if (!pending || String(pending.user) !== String(req.user._id) || String(pending.event) !== String(eventId)) {
+      return res.status(404).json({ success: false, message: 'Payment not found' });
+    }
+
+    let card;
+    try {
+      card = await cardOf(paymentMethodId, pending.stripeAccountId);
+    } catch (stripeError) {
+      console.error('Could not read card for check-card:', stripeError.message);
+      return res.status(400).json({ success: false, message: 'We could not read your card details. Please try again.' });
+    }
+
+    if (!isCardAccepted(card)) {
+      return res.status(200).json({
+        success: true,
+        accepted: false,
+        errorCode: 'CARD_NOT_ACCEPTED',
+        message: CARD_NOT_ACCEPTED_MESSAGE,
+      });
+    }
+    return res.status(200).json({ success: true, accepted: true });
+  } catch (error) {
+    console.error('Error checking card:', error);
+    res.status(500).json({ success: false, message: 'Failed to check card' });
   }
 });
 

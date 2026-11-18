@@ -19,6 +19,7 @@ import EventInvoice from '../../models/eventInvoice.js';
 import PaidTicket from '../../models/paidTicket.js';
 import Reservation from '../../models/reservationModel.js';
 import PendingOrder from '../../models/pendingOrder.js';
+import { isCardAccepted, cardOf } from './cardRules.js';
 import {
   generateTicketNumber, validateTicketPurchase, calculateTicketPricing, createEventSnapshot,
   generateInvoiceNumber, normalizeDiscountCode, planPackIssuance,
@@ -54,6 +55,7 @@ const NOT_CHARGED_TEXT = {
   SALES_CLOSED: 'Ticket sales closed while you were paying.',
   UNAVAILABLE: 'These tickets stopped being available while you were paying.',
   CAPTURE_FAILED: "We couldn't complete your payment.",
+  CARD_NOT_ACCEPTED: 'We only accept Australian-issued Visa, Mastercard or Amex.',
 };
 const NOT_CHARGED_NOTE = 'You will not be charged.';
 
@@ -588,6 +590,21 @@ export const fulfilPaidOrder = async ({ paymentIntentId, eventId, stripeAccountI
 
   const input = orderInput(pending, paymentIntent, browser, event);
   const ctx = { pending, paymentIntent, stripeAccountId: account, eventId: event._id, eventTitle: event.title, userId: buyerId, input };
+
+  // Feature 1016 safety net: the card is checked at Pay (check-card); check again before any money
+  // is taken, so a card that got past it (older page, direct API use) is released, never charged.
+  // If Stripe cannot tell us the card right now, carry on - the Pay check already ran.
+  if (hold) {
+    let card;
+    try {
+      card = await cardOf(paymentIntent.payment_method, account);
+    } catch (err) {
+      console.error(`Card check before capture skipped for ${paymentIntentId}:`, err.message);
+    }
+    if (card && !isCardAccepted(card)) {
+      return { http: 409, body: await releaseOrder({ ...ctx, reason: 'CARD_NOT_ACCEPTED' }) };
+    }
+  }
 
   // Closing times are judged at Pay, if the payment finished within the window.
   const judgeAt = orderJudgedAt(input.startedAt);

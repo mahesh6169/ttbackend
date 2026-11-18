@@ -2,7 +2,7 @@
 // are made by whichever arrives first - the buyer's browser ("I've paid") or Stripe's webhook -
 // and only then is the money taken. If the tickets cannot be made the hold is released, so a buyer
 // is never charged without tickets. These tests use real Stripe test-mode payments on the test
-// connected account (TEST_STRIPE_ACCOUNT_ID) and Stripe's test Visa card.
+// connected account (TEST_STRIPE_ACCOUNT_ID) and Stripe's Australian test Visa card.
 import { jest } from '@jest/globals';
 import Event from '../../models/eventModel.js';
 import EventInvoice from '../../models/eventInvoice.js';
@@ -11,7 +11,9 @@ import PendingOrder from '../../models/pendingOrder.js';
 import { createOrganiser, createUser, createPaidEvent, createPaidTicket } from '../helpers/factories.js';
 import {
   createPaymentIntent, createHoldPaymentIntent, authoriseWithTestCard, stripePayment, confirmPurchase, sendStripeWebhook,
+  testCardOnStripe, checkCard,
 } from '../helpers/eventRequests.js';
+import { isCardAccepted } from '../../utils/events/cardRules.js';
 import { clearEmailsBeforeEach, getCapturedEmails } from '../helpers/email.js';
 
 jest.setTimeout(60_000);
@@ -221,5 +223,87 @@ describe('things that change while paying are judged at Pay', () => {
     const invoice = await EventInvoice.findOne({ 'payment.paymentIntentId': piId });
     expect(invoice.amounts.total).toBe(20);
     expect((await stripePayment(piId)).amount_received).toBe(2000);
+  });
+});
+
+// Feature 1016: only Australian-issued Visa, Mastercard or Amex (credit, debit or prepaid) can pay.
+// Checked at Pay before any money is held, and again before the money is taken.
+describe('only Australian Visa, Mastercard or Amex cards can pay', () => {
+  const REFUSED = 'Sorry, we only accept Australian-issued Visa, Mastercard or Amex. Please try another card.';
+
+  test('the card rule: Australian Visa, Mastercard and Amex (any funding) pass; other brands and overseas cards do not', () => {
+    for (const brand of ['visa', 'mastercard', 'amex']) {
+      for (const funding of ['credit', 'debit', 'prepaid']) {
+        expect(isCardAccepted({ brand, country: 'AU', funding })).toBe(true);
+      }
+      expect(isCardAccepted({ brand, country: 'US' })).toBe(false);
+      expect(isCardAccepted({ brand, country: 'IN' })).toBe(false);
+    }
+    for (const brand of ['discover', 'jcb', 'diners', 'unionpay', 'unknown']) {
+      expect(isCardAccepted({ brand, country: 'AU' })).toBe(false);
+    }
+    expect(isCardAccepted(null)).toBe(false);
+    expect(isCardAccepted({ brand: 'visa' })).toBe(false); // country unknown
+  });
+
+  test('at Pay: an Australian Visa is accepted, an overseas Visa and a Discover are refused with the message', async () => {
+    const { buyer, event } = await setup();
+    const pay = await createHoldPaymentIntent(buyer, event._id, { [typeIdOf(event)]: 1 });
+    expect(pay.status).toBe(200);
+    const piId = pay.body.paymentIntentId;
+
+    const au = await checkCard(buyer, event._id, piId, await testCardOnStripe('tok_au'));
+    expect(au.status).toBe(200);
+    expect(au.body.accepted).toBe(true);
+
+    for (const token of ['tok_visa', 'tok_discover']) {
+      const res = await checkCard(buyer, event._id, piId, await testCardOnStripe(token));
+      expect(res.status).toBe(200);
+      expect(res.body.accepted).toBe(false);
+      expect(res.body.errorCode).toBe('CARD_NOT_ACCEPTED');
+      expect(res.body.message).toBe(REFUSED);
+    }
+    // Checking a card holds nothing: the payment is still waiting for a card.
+    expect((await stripePayment(piId)).status).toBe('requires_payment_method');
+  });
+
+  test('at Pay: someone else\'s payment cannot be checked', async () => {
+    const { buyer, event } = await setup();
+    const pay = await createHoldPaymentIntent(buyer, event._id, { [typeIdOf(event)]: 1 });
+    const res = await checkCard(await createUser(), event._id, pay.body.paymentIntentId, await testCardOnStripe('tok_au'));
+    expect(res.status).toBe(404);
+  });
+
+  test('an overseas card that got past the Pay check is released before the money is taken: no tickets, not charged, buyer told', async () => {
+    const { buyer, event } = await setup();
+    const pay = await createHoldPaymentIntent(buyer, event._id, { [typeIdOf(event)]: 1 });
+    const piId = pay.body.paymentIntentId;
+    expect((await authoriseWithTestCard(piId, 'pm_card_visa')).status).toBe('requires_capture'); // US Visa, held
+
+    const res = await confirmPurchase(buyer, event._id, piId);
+    expect(res.status).toBe(409);
+    expect(res.body.errorCode).toBe('NOT_CHARGED');
+    expect(res.body.reason).toBe('CARD_NOT_ACCEPTED');
+    expect(res.body.message).toBe('We only accept Australian-issued Visa, Mastercard or Amex. You will not be charged.');
+    expect((await stripePayment(piId)).status).toBe('canceled');
+    expect(await PaidTicket.countDocuments({ paymentIntentId: piId })).toBe(0);
+    expect(emailsTo('buyer@test.dev')).toHaveLength(1);
+
+    // Stripe's message for the same payment changes nothing.
+    await sendStripeWebhook('payment_intent.amount_capturable_updated', piId);
+    expect(await PaidTicket.countDocuments({ paymentIntentId: piId })).toBe(0);
+  });
+
+  test('the same overseas card is also released when only Stripe\'s message arrives (page closed)', async () => {
+    const { buyer, event } = await setup();
+    const pay = await createHoldPaymentIntent(buyer, event._id, { [typeIdOf(event)]: 1 });
+    const piId = pay.body.paymentIntentId;
+    await authoriseWithTestCard(piId, 'pm_card_visa');
+
+    const hook = await sendStripeWebhook('payment_intent.amount_capturable_updated', piId);
+    expect(hook.status).toBe(200);
+    expect((await stripePayment(piId)).status).toBe('canceled');
+    expect(await PaidTicket.countDocuments({ paymentIntentId: piId })).toBe(0);
+    expect((await PendingOrder.findOne({ paymentIntentId: piId })).releaseReason).toBe('CARD_NOT_ACCEPTED');
   });
 });
